@@ -10,16 +10,16 @@ INCLUDES=-I$(IDASDK_PATH)/include -I$(IDA_PATH)/plugins/hexrays_sdk/include
 
 DWARFEXPORT_SRC = $(wildcard src/*.cpp)
 
-all: dwarfexport.plx dwarfexport.plx64
+all: bin/dwarfexport.plx bin/dwarfexport.plx64
 
-dwarfexport.plx: $(DWARFEXPORT_SRC)
+bin/dwarfexport.plx: $(DWARFEXPORT_SRC)
 	$(CXX) $(LDFLAGS) $(DWARFEXPORT_SRC) $(CXXFLAGS) \
 	-L. \
 	-L$(IDA_PATH) \
 	$(INCLUDES) \
 	-D__LINUX__ $(LIBS) -o bin/dwarfexport.plx
 
-dwarfexport.plx64: $(DWARFEXPORT_SRC)
+bin/dwarfexport.plx64: $(DWARFEXPORT_SRC)
 	$(CXX) $(LDFLAGS) $(DWARFEXPORT_SRC) $(CXXFLAGS) \
 	-L. \
 	-L$(IDA_PATH) \

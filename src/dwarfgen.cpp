@@ -298,7 +298,7 @@ static ElfSectIndex create_dw_elf(SectionFromDwarf &ds) {
 }
 
 
-int generate_dwarf_object(const std::string& filename) {
+Dwarf_P_Debug generate_dwarf_object() {
   // Example will return error value thru 'err' pointer
   // and return DW_DLV_BADADDR if there is an error.
   int ptrsizeflagbit = DW_DLC_POINTER32;
@@ -329,22 +329,13 @@ int generate_dwarf_object(const std::string& filename) {
     dwarfexport_error("dwarfgen: Failed dwarf_pro_set_default_string_form");
   }
 
-  add_dwarf_info(dbg);
+  return dbg;
+}
 
+void write_dwarf_file(Dwarf_P_Debug dbg, const std::string& filename)
+{
   write_object_file(dbg, filename);
-
-  Dwarf_Unsigned str_count = 0;
-  Dwarf_Unsigned str_len = 0;
-  Dwarf_Unsigned debug_str_count = 0;
-  Dwarf_Unsigned debug_str_len = 0;
-  Dwarf_Unsigned reused_count = 0;
-  Dwarf_Unsigned reused_len = 0;
-  res = dwarf_pro_get_string_stats(dbg, &str_count, &str_len,
-                                   &debug_str_count, &debug_str_len,
-                                   &reused_count, &reused_len, &err);
-
   dwarf_producer_finish(dbg, 0);
-  return 0;
 }
 
 static void write_object_file(Dwarf_P_Debug dbg, const std::string& filename) {

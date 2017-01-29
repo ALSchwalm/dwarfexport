@@ -16,7 +16,7 @@ inline void dwarfexport_error(const std::string& s,
   dwarfexport_error(s+arg, args...);
 }
 
-int generate_dwarf_object(const std::string& filename);
-void add_dwarf_info(Dwarf_P_Debug dbg);
+Dwarf_P_Debug generate_dwarf_object();
+void write_dwarf_file(Dwarf_P_Debug dbg, const std::string& filename);
 
 #endif

@@ -94,7 +94,8 @@ static Dwarf_P_Die add_function(Dwarf_P_Debug dbg, Dwarf_P_Die parent,
   return die;
 }
 
-void add_dwarf_info(Dwarf_P_Debug dbg) {
+void add_debug_info(Dwarf_P_Debug dbg, std::ofstream& sourcefile,
+                    std::string filepath, std::string c_filename) {
   Dwarf_Error err = 0;
   Dwarf_P_Die cu;
   cu = dwarf_new_die(dbg, DW_TAG_compile_unit, nullptr, nullptr, nullptr,
@@ -103,29 +104,29 @@ void add_dwarf_info(Dwarf_P_Debug dbg) {
     dwarfexport_error("dwarf_new_die failed: ", dwarf_errmsg(err));
   }
 
-  if (dwarf_add_AT_name(cu, "testout.c", &err) == nullptr) {
+  if (dwarf_add_AT_name(cu, &c_filename[0], &err) == nullptr) {
     dwarfexport_error("dwarf_add_AT_name failed: ", dwarf_errmsg(err));
   }
 
-  auto dir_index = dwarf_add_directory_decl(dbg, "/home/adam/test", &err);
+  auto dir_index = dwarf_add_directory_decl(dbg, &filepath[0], &err);
   auto file_index =
-      dwarf_add_file_decl(dbg, "testout.c", dir_index, 0, 0, &err);
+    dwarf_add_file_decl(dbg, &c_filename[0], dir_index, 0, 0, &err);
 
-  dwarf_add_AT_comp_dir(cu, "/home/adam/test/", &err);
+  dwarf_add_AT_comp_dir(cu, &filepath[0], &err);
 
-  std::ofstream outfile;
-  outfile.open("testout.c");
   int linecount = 0;
-
   segment_t *seg = get_segm_by_name(".text");
+
   for (func_t *f = get_func(seg->startEA); f != nullptr;
        f = get_next_func(f->startEA)) {
     if (f->startEA > seg->endEA) {
       break;
     }
 
-    add_function(dbg, cu, f, outfile, linecount, file_index);
-    outfile << "\n\n";
+    add_function(dbg, cu, f, sourcefile, linecount, file_index);
+
+    // Add a little space between the functions
+    sourcefile << "\n\n";
     linecount += 2;
   }
 
@@ -142,7 +143,36 @@ int idaapi init(void) {
 
 void idaapi run(int) {
   try {
-    generate_dwarf_object("out_file.elf");
+    char filepath[QMAXPATH];
+    char filename[QMAXPATH];
+    get_input_file_path(filepath, QMAXPATH);
+    get_root_filename(filename, QMAXPATH);
+
+    //TODO make this portable
+    char* filepath_end = strrchr(filepath, '/');
+    if (filepath_end != nullptr) {
+      *(filepath_end+1) = '\0';
+    }
+
+    const char *dialog =
+      "STARTITEM 0\n"
+      "Dwarf Export\n\n"
+      "Select the location to save the exported data:\n"
+      "<Save:F:1:::>\n";
+
+    if (AskUsingForm_c(dialog, filepath) == 1) {
+      auto elf_filename = std::string(filename) + ".elf";
+      auto c_filename = std::string(filename) + ".c";
+
+      std::ofstream sourcefile(filepath + c_filename);
+
+      auto dbg = generate_dwarf_object();
+      add_debug_info(dbg, sourcefile, filepath, c_filename);
+      write_dwarf_file(dbg, filepath + elf_filename);
+
+    } else {
+      warning("A dwarfexport error occurred");
+    }
   } catch (const std::exception &e) {
     std::string msg = "A dwarfexport error occurred: " + std::string(e.what());
     warning(msg.c_str());
