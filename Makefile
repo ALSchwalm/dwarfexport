@@ -1,8 +1,6 @@
 
 
 CXX ?= g++
-IDASDK_PATH ?= /home/adam/Repos/idasdk695
-IDA_PATH ?= /home/adam/ida-6.95
 CXXFLAGS=-m32 -fPIC -shared -Wall -Wextra -std=c++11
 LDFLAGS+=-static-libgcc -static-libstdc++
 LIBS=-lelf -lida lib/libdwarf32.a
