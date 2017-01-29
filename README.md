@@ -36,5 +36,5 @@ folder location respectively. Then build the plugin using `make`.
 License
 -------
 
-`dwarfexport` is licensed under the terms of the LGPLv3. See the LICENSE file for
+`dwarfexport` is licensed under the terms of the LGPLv2.1. See the LICENSE file for
 details.
