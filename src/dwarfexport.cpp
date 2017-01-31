@@ -17,6 +17,174 @@ hexdsp_t *hexdsp = NULL;
 using type_record_t = std::map<tinfo_t, Dwarf_P_Die>;
 
 static Dwarf_P_Die get_or_add_type(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
+                                   const tinfo_t &type, type_record_t &record);
+
+static Dwarf_P_Die add_struct_type(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
+                                   const tinfo_t &type, type_record_t &record) {
+  if (!type.is_struct()) {
+    dwarfexport_error("add_struct_type: type is not struct");
+  }
+
+  Dwarf_P_Die die;
+  Dwarf_Error err = 0;
+
+  die = dwarf_new_die(dbg, DW_TAG_structure_type, cu, NULL, NULL, NULL, &err);
+
+  // Add type name
+  std::string name = type.dstr();
+  if (dwarf_add_AT_name(die, &name[0], &err) == NULL) {
+    dwarfexport_error("dwarf_add_AT_name failed: ", dwarf_errmsg(err));
+  }
+
+  // Add type size
+  auto size = type.get_size();
+  if (size != BADSIZE &&
+      dwarf_add_AT_unsigned_const(dbg, die, DW_AT_byte_size, size, &err) ==
+          NULL) {
+    dwarfexport_error("dwarf_add_AT_unsigned_const failed: ",
+                      dwarf_errmsg(err));
+  }
+
+  auto member_count = type.get_udt_nmembers();
+  if (member_count == -1) {
+    dwarfexport_error("add_struct_type: get_udt_nmembers error");
+  }
+
+  for (int i = 0; i < member_count; ++i) {
+    udt_member_t member;
+    member.offset = i;
+    type.find_udt_member(STRMEM_INDEX, &member);
+    auto member_type = member.type;
+    auto member_die =
+        dwarf_new_die(dbg, DW_TAG_member, die, NULL, NULL, NULL, &err);
+
+    // Add member type
+    auto member_type_die = get_or_add_type(dbg, cu, member_type, record);
+    if (dwarf_add_AT_reference(dbg, member_die, DW_AT_type, member_type_die,
+                               &err) == nullptr) {
+      dwarfexport_error("dwarf_add_AT_reference failed: ", dwarf_errmsg(err));
+    }
+
+    // Add member name
+    auto member_name = member.name;
+    if (dwarf_add_AT_name(member_die, &member_name[0], &err) == NULL) {
+      dwarfexport_error("dwarf_add_AT_name failed: ", dwarf_errmsg(err));
+    }
+
+    // Add member location in struct
+    Dwarf_P_Expr loc_expr = dwarf_new_expr(dbg, &err);
+    if (dwarf_add_expr_gen(loc_expr, DW_OP_plus_uconst, member.offset / 8, 0,
+                           &err) == DW_DLV_NOCOUNT) {
+      dwarfexport_error("dwarf_add_expr_gen failed: ", dwarf_errmsg(err));
+    }
+
+    if (dwarf_add_AT_location_expr(dbg, member_die, DW_AT_data_member_location,
+                                   loc_expr, &err) == nullptr) {
+      dwarfexport_error("dwarf_add_AT_location_expr failed: ",
+                        dwarf_errmsg(err));
+    }
+  }
+  return die;
+}
+
+static Dwarf_P_Die add_array_type(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
+                                  const tinfo_t &type, type_record_t &record) {
+  if (!type.is_array()) {
+    dwarfexport_error("add_array_type: type is not array");
+  }
+
+  Dwarf_P_Die die;
+  Dwarf_Error err = 0;
+
+  die = dwarf_new_die(dbg, DW_TAG_array_type, cu, NULL, NULL, NULL, &err);
+  auto element_type = type;
+  element_type.remove_ptr_or_array();
+  auto element_die = get_or_add_type(dbg, cu, element_type, record);
+
+  if (dwarf_add_AT_reference(dbg, die, DW_AT_type, element_die, &err) ==
+      nullptr) {
+    dwarfexport_error("dwarf_add_AT_reference failed: ", dwarf_errmsg(err));
+  }
+
+  auto elems = type.get_array_nelems();
+  if (elems != -1) {
+    auto subrange =
+        dwarf_new_die(dbg, DW_TAG_subrange_type, die, NULL, NULL, NULL, &err);
+    if (dwarf_add_AT_unsigned_const(dbg, subrange, DW_AT_upper_bound, elems,
+                                    &err) == NULL) {
+      dwarfexport_error("dwarf_add_AT_unsigned_const failed: ",
+                        dwarf_errmsg(err));
+
+      tinfo_t size_type;
+      qstring name;
+
+      // Try to get size_t and use it for the index type
+      if (parse_decl2(idati, "size_t x;", &name, &size_type, PT_SIL)) {
+        auto index_die = get_or_add_type(dbg, cu, size_type, record);
+        if (dwarf_add_AT_reference(dbg, subrange, DW_AT_type, index_die,
+                                   &err) == nullptr) {
+          dwarfexport_error("dwarf_add_AT_reference failed: ",
+                            dwarf_errmsg(err));
+        }
+        if (dwarf_add_AT_reference(dbg, die, DW_AT_sibling, index_die, &err) ==
+            nullptr) {
+          dwarfexport_error("dwarf_add_AT_reference failed: ",
+                            dwarf_errmsg(err));
+        }
+      }
+    }
+  }
+  return die;
+}
+
+static Dwarf_P_Die add_const_type(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
+                                  const tinfo_t &type, type_record_t &record) {
+  if (!type.is_const()) {
+    dwarfexport_error("add_const_type: type is not const");
+  }
+
+  Dwarf_P_Die die;
+  Dwarf_Error err = 0;
+
+  die = dwarf_new_die(dbg, DW_TAG_const_type, cu, NULL, NULL, NULL, &err);
+  auto without_const = type;
+  without_const.clr_const();
+  auto child_die = get_or_add_type(dbg, cu, without_const, record);
+
+  if (dwarf_add_AT_reference(dbg, die, DW_AT_type, child_die, &err) ==
+      nullptr) {
+    dwarfexport_error("dwarf_add_AT_reference failed: ", dwarf_errmsg(err));
+  }
+  return die;
+}
+
+static Dwarf_P_Die add_ptr_type(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
+                                const tinfo_t &type, type_record_t &record) {
+  if (!type.is_ptr()) {
+    dwarfexport_error("add_ptr_type: type is not a pointer");
+  }
+
+  Dwarf_P_Die die;
+  Dwarf_Error err = 0;
+
+  die = dwarf_new_die(dbg, DW_TAG_pointer_type, cu, NULL, NULL, NULL, &err);
+  auto without_ptr = type;
+  without_ptr.remove_ptr_or_array();
+  auto child_die = get_or_add_type(dbg, cu, without_ptr, record);
+
+  if (dwarf_add_AT_reference(dbg, die, DW_AT_type, child_die, &err) ==
+      nullptr) {
+    dwarfexport_error("dwarf_add_AT_reference failed: ", dwarf_errmsg(err));
+  }
+  if (dwarf_add_AT_unsigned_const(dbg, die, DW_AT_byte_size, sizeof(ea_t),
+                                  &err) == NULL) {
+    dwarfexport_error("dwarf_add_AT_unsigned_const failed: ",
+                      dwarf_errmsg(err));
+  }
+  return die;
+}
+
+static Dwarf_P_Die get_or_add_type(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
                                    const tinfo_t &type, type_record_t &record) {
   if (record.find(type) != record.end()) {
     return record[type];
@@ -25,74 +193,22 @@ static Dwarf_P_Die get_or_add_type(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
   Dwarf_P_Die die;
   Dwarf_Error err = 0;
 
-  // special cases for const, ptr and array
+  // special cases for const, ptr, array, and struct
   if (type.is_const()) {
-    die = dwarf_new_die(dbg, DW_TAG_const_type, cu, NULL, NULL, NULL, &err);
-    auto without_const = type;
-    without_const.clr_const();
-    auto child_die = get_or_add_type(dbg, cu, without_const, record);
-
-    if (dwarf_add_AT_reference(dbg, die, DW_AT_type, child_die, &err) ==
-        nullptr) {
-      dwarfexport_error("dwarf_add_AT_reference failed: ", dwarf_errmsg(err));
-    }
+    die = add_const_type(dbg, cu, type, record);
+    record[type] = die;
     return die;
   } else if (type.is_ptr()) {
-    die = dwarf_new_die(dbg, DW_TAG_pointer_type, cu, NULL, NULL, NULL, &err);
-    auto without_ptr = type;
-    without_ptr.remove_ptr_or_array();
-    auto child_die = get_or_add_type(dbg, cu, without_ptr, record);
-
-    if (dwarf_add_AT_reference(dbg, die, DW_AT_type, child_die, &err) ==
-        nullptr) {
-      dwarfexport_error("dwarf_add_AT_reference failed: ", dwarf_errmsg(err));
-    }
-    if (dwarf_add_AT_unsigned_const(dbg, die, DW_AT_byte_size, sizeof(ea_t),
-                                    &err) == NULL) {
-      dwarfexport_error("dwarf_add_AT_unsigned_const failed: ",
-                        dwarf_errmsg(err));
-    }
-
+    die = add_ptr_type(dbg, cu, type, record);
+    record[type] = die;
     return die;
   } else if (type.is_array()) {
-    die = dwarf_new_die(dbg, DW_TAG_array_type, cu, NULL, NULL, NULL, &err);
-    auto element_type = type;
-    element_type.remove_ptr_or_array();
-    auto element_die = get_or_add_type(dbg, cu, element_type, record);
-
-    if (dwarf_add_AT_reference(dbg, die, DW_AT_type, element_die, &err) ==
-        nullptr) {
-      dwarfexport_error("dwarf_add_AT_reference failed: ", dwarf_errmsg(err));
-    }
-
-    auto elems = type.get_array_nelems();
-    if (elems != -1) {
-      auto subrange =
-          dwarf_new_die(dbg, DW_TAG_subrange_type, die, NULL, NULL, NULL, &err);
-      if (dwarf_add_AT_unsigned_const(dbg, subrange, DW_AT_upper_bound, elems,
-                                      &err) == NULL) {
-        dwarfexport_error("dwarf_add_AT_unsigned_const failed: ",
-                          dwarf_errmsg(err));
-
-        tinfo_t size_type;
-        qstring name;
-
-        // Try to get size_t and use it for the index type
-        if (parse_decl2(idati, "size_t x;", &name, &size_type, PT_SIL)) {
-          auto index_die = get_or_add_type(dbg, cu, size_type, record);
-          if (dwarf_add_AT_reference(dbg, subrange, DW_AT_type, index_die,
-                                     &err) == nullptr) {
-            dwarfexport_error("dwarf_add_AT_reference failed: ",
-                              dwarf_errmsg(err));
-          }
-          if (dwarf_add_AT_reference(dbg, die, DW_AT_sibling, index_die,
-                                     &err) == nullptr) {
-            dwarfexport_error("dwarf_add_AT_reference failed: ",
-                              dwarf_errmsg(err));
-          }
-        }
-      }
-    }
+    die = add_array_type(dbg, cu, type, record);
+    record[type] = die;
+    return die;
+  } else if (type.is_struct()) {
+    die = add_struct_type(dbg, cu, type, record);
+    record[type] = die;
     return die;
   }
 
@@ -147,12 +263,28 @@ static Dwarf_P_Die add_variable(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
 
   if (var.is_stk_var()) {
     // Add frame location
-    // TODO: what to do for non-bp based frames and register
-    // variables
+    // TODO: what to do for non-bp based frames and register variables
     Dwarf_P_Expr loc_expr = dwarf_new_expr(dbg, &err);
     auto func = get_func(cfunc->entry_ea);
-    int stack_offset = var.location.stkoff() - get_frame_size(func);
-    if (dwarf_add_expr_gen(loc_expr, DW_OP_fbreg, stack_offset, 0, &err) ==
+
+    // FIXME: Not sure what's going on here. stkoff returns strange values
+    //       but this math seems to work out.
+    int base_offset;
+    if (sizeof(ea_t) == 4) {
+      // IDA bug? This is off by 8 on 32 bit builds
+      auto correct_stack_offset = var.location.stkoff() - 8;
+      base_offset = -(func->frsize - correct_stack_offset);
+
+      // Fixup base offset for dwarf (not sure why this is 8)
+      base_offset -= 8;
+    } else {
+      base_offset = -(func->frsize - var.location.stkoff());
+
+      // Fixup base offset for dwarf (not sure why this is 16)
+      base_offset -= 16;
+    }
+
+    if (dwarf_add_expr_gen(loc_expr, DW_OP_fbreg, base_offset, 0, &err) ==
         DW_DLV_NOCOUNT) {
       dwarfexport_error("dwarf_add_expr_gen failed: ", dwarf_errmsg(err));
     }
@@ -355,9 +487,10 @@ void idaapi run(int) {
 
       std::ofstream sourcefile(filepath + c_filename);
 
-      auto dbg = generate_dwarf_object();
-      add_debug_info(dbg, sourcefile, filepath, c_filename);
-      write_dwarf_file(dbg, filepath + elf_filename);
+      Mode m = (sizeof(ea_t) == 4) ? (Mode::BIT32) : (Mode::BIT64);
+      auto info = generate_dwarf_object(m);
+      add_debug_info(info->dbg, sourcefile, filepath, c_filename);
+      write_dwarf_file(m, info, filepath + elf_filename);
 
     } else {
       warning("A dwarfexport error occurred");
