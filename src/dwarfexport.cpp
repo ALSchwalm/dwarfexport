@@ -330,8 +330,6 @@ static Dwarf_P_Die add_function(Dwarf_P_Debug dbg, Dwarf_P_Die cu, func_t *func,
     dwarfexport_error("dwarf_add_AT_location_expr failed: ", dwarf_errmsg(err));
   }
 
-  // dwarf_add_AT_string(dbg, die, DW_AT_linkage_name, c_name, &err);
-
   // Add function name
   auto name = get_long_name(func->startEA);
   char *c_name = &*name.begin();
@@ -339,6 +337,12 @@ static Dwarf_P_Die add_function(Dwarf_P_Debug dbg, Dwarf_P_Die cu, func_t *func,
 
   if (dwarf_add_AT_name(die, c_name, &err) == nullptr) {
     dwarfexport_error("dwarf_add_AT_name failed: ", dwarf_errmsg(err));
+  }
+
+  auto mangled_name = get_true_name(func->startEA);
+  if (dwarf_add_AT_string(dbg, die, DW_AT_linkage_name, &mangled_name[0],
+                          &err) == nullptr) {
+    dwarfexport_error("dwarf_add_AT_string failed: ", dwarf_errmsg(err));
   }
 
   hexrays_failure_t hf;
