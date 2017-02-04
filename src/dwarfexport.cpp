@@ -1,3 +1,4 @@
+
 #include <cstdio>
 #include <cstdlib>
 #include <frame.hpp>
@@ -475,7 +476,11 @@ void idaapi run(int) {
     get_root_filename(filename, QMAXPATH);
 
     // TODO make this portable
-    char *filepath_end = strrchr(filepath, '/');
+#ifdef __NT__
+    char *filepath_end = strrchr(filepath, '\\');
+#else
+	char *filepath_end = strrchr(filepath, '/');
+#endif
     if (filepath_end != nullptr) {
       *(filepath_end + 1) = '\0';
     }

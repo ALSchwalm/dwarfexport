@@ -54,8 +54,6 @@ static void write_object_file(Mode m, std::shared_ptr<DwarfGenInfo> info,
 
 static void write_generated_dbg(Dwarf_P_Debug dbg, Elf *elf);
 
-/*  Use a generic call to open the file, due to issues with Windows */
-int open_a_file(const char *name);
 int create_a_file(const char *name);
 void close_a_file(int f);
 
@@ -391,43 +389,12 @@ static void write_generated_dbg(Dwarf_P_Debug dbg, Elf *elf) {
   }
 }
 
-int open_a_file(const char *name) {
-  /* Set to a file number that cannot be legal. */
-  int f = -1;
-
-#if defined(__CYGWIN__) || defined(_WIN32)
-  /*  It is not possible to share file handles
-      between applications or DLLs. Each application has its own
-      file-handle table. For two applications to use the same file
-      using a DLL, they must both open the file individually.
-      Let the 'libelf' dll to open and close the file.  */
-
-  /* For WIN32 open the file as binary */
-  f = elf_open(name, O_RDONLY | O_BINARY);
-#else
-  f = open(name, O_RDONLY);
+#ifndef __NT__
+#define O_BINARY 0
 #endif
-  return f;
-}
-
 int create_a_file(const char *name) {
-  /* Set to a file number that cannot be legal. */
-  int f = -1;
-
-#if defined(__CYGWIN__) || defined(_WIN32)
-  /*  It is not possible to share file handles
-      between applications or DLLs. Each application has its own
-      file-handle table. For two applications to use the same file
-      using a DLL, they must both open the file individually.
-      Let the 'libelf' dll to open and close the file.  */
-
-  /* For WIN32 create the file as binary */
-  f = elf_open(name, O_WRONLY | O_CREAT | O_BINARY);
-#else
-  int mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;
-  f = open(name, O_WRONLY | O_CREAT | O_TRUNC, mode);
-#endif
-  return f;
+  int mode = S_IRUSR | S_IWUSR;
+  return open(name, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, mode);
 }
 
 void close_a_file(int f) { close(f); }
