@@ -3,7 +3,6 @@
 #include <cstdlib>
 #include <frame.hpp>
 #include <fstream>
-#include <hexrays.hpp>
 #include <ida.hpp>
 #include <idp.hpp>
 #include <kernwin.hpp>
@@ -321,10 +320,12 @@ static Dwarf_P_Die add_variable(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
   return die;
 }
 
-static Dwarf_P_Die add_function(Dwarf_P_Debug dbg, Dwarf_P_Die cu, func_t *func,
+static Dwarf_P_Die add_function(std::shared_ptr<DwarfGenInfo> info,
+                                Dwarf_P_Die cu, func_t *func,
                                 std::ofstream &file, int &linecount,
                                 Dwarf_Unsigned file_index,
                                 type_record_t &record) {
+  auto dbg = info->dbg;
   Dwarf_P_Die die;
   Dwarf_Error err = 0;
   die = dwarf_new_die(dbg, DW_TAG_subprogram, cu, nullptr, nullptr, nullptr,
@@ -332,10 +333,6 @@ static Dwarf_P_Die add_function(Dwarf_P_Debug dbg, Dwarf_P_Die cu, func_t *func,
   if (die == nullptr) {
     dwarfexport_error("dwarf_new_die failed: ", dwarf_errmsg(err));
   }
-
-  // Add function bounds
-  dwarf_add_AT_targ_address(dbg, die, DW_AT_low_pc, func->startEA, 0, &err);
-  dwarf_add_AT_targ_address(dbg, die, DW_AT_high_pc, func->endEA, 0, &err);
 
   // Add location declaration
   dwarf_add_AT_unsigned_const(dbg, die, DW_AT_decl_file, file_index, &err);
@@ -367,6 +364,15 @@ static Dwarf_P_Die add_function(Dwarf_P_Debug dbg, Dwarf_P_Die cu, func_t *func,
                           &err) == nullptr) {
     dwarfexport_error("dwarf_add_AT_string failed: ", dwarf_errmsg(err));
   }
+
+  // Add function bounds
+  auto symbol_index = info->symbols.addSymbol(func->startEA, &mangled_name[0],
+                                              func->endEA - func->startEA);
+  auto symbol_index_value = symbol_index.getSymIndex();
+  dwarf_add_AT_targ_address(dbg, die, DW_AT_low_pc, func->startEA,
+                            symbol_index_value, &err);
+  dwarf_add_AT_targ_address(dbg, die, DW_AT_high_pc, func->endEA,
+                            symbol_index_value, &err);
 
   hexrays_failure_t hf;
   cfuncptr_t cfunc = decompile(func, &hf);
@@ -491,8 +497,10 @@ void add_global_variables(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
   }
 }
 
-void add_debug_info(Dwarf_P_Debug dbg, std::ofstream &sourcefile,
-                    std::string filepath, std::string c_filename) {
+void add_debug_info(std::shared_ptr<DwarfGenInfo> info,
+                    std::ofstream &sourcefile, std::string filepath,
+                    std::string c_filename) {
+  auto dbg = info->dbg;
   Dwarf_Error err = 0;
   Dwarf_P_Die cu;
   cu = dwarf_new_die(dbg, DW_TAG_compile_unit, nullptr, nullptr, nullptr,
@@ -530,7 +538,7 @@ void add_debug_info(Dwarf_P_Debug dbg, std::ofstream &sourcefile,
       break;
     }
 
-    add_function(dbg, cu, f, sourcefile, linecount, file_index, record);
+    add_function(info, cu, f, sourcefile, linecount, file_index, record);
 
     // Add a little space between the functions
     sourcefile << "\n\n";
@@ -578,10 +586,12 @@ void idaapi run(int) {
 
       std::ofstream sourcefile(filepath + c_filename);
 
-      Mode m = (sizeof(ea_t) == 4) ? (Mode::BIT32) : (Mode::BIT64);
-      auto info = generate_dwarf_object(m);
-      add_debug_info(info->dbg, sourcefile, filepath, c_filename);
-      write_dwarf_file(m, info, filepath + elf_filename);
+      auto info = generate_dwarf_object();
+      add_debug_info(info, sourcefile, filepath, c_filename);
+      write_dwarf_file(info, filepath + elf_filename);
+
+    } else {
+      warning("A dwarfexport error occurred");
     }
   } catch (const std::exception &e) {
     std::string msg = "A dwarfexport error occurred: " + std::string(e.what());
