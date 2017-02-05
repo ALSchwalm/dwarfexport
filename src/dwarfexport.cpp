@@ -112,6 +112,7 @@ static Dwarf_P_Die add_array_type(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
 
   auto elems = type.get_array_nelems();
   if (elems != -1) {
+    elems -= 1;
     auto subrange =
         dwarf_new_die(dbg, DW_TAG_subrange_type, die, NULL, NULL, NULL, &err);
     if (dwarf_add_AT_unsigned_const(dbg, subrange, DW_AT_upper_bound, elems,
