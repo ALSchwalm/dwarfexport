@@ -30,6 +30,7 @@ static Dwarf_P_Die add_struct_type(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
   Dwarf_Error err = 0;
 
   die = dwarf_new_die(dbg, DW_TAG_structure_type, cu, NULL, NULL, NULL, &err);
+  record[type] = die;
 
   // Add type name
   std::string name = type.dstr();
@@ -98,6 +99,8 @@ static Dwarf_P_Die add_array_type(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
   Dwarf_Error err = 0;
 
   die = dwarf_new_die(dbg, DW_TAG_array_type, cu, NULL, NULL, NULL, &err);
+  record[type] = die;
+
   auto element_type = type;
   element_type.remove_ptr_or_array();
   auto element_die = get_or_add_type(dbg, cu, element_type, record);
@@ -148,6 +151,8 @@ static Dwarf_P_Die add_const_type(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
   Dwarf_Error err = 0;
 
   die = dwarf_new_die(dbg, DW_TAG_const_type, cu, NULL, NULL, NULL, &err);
+  record[type] = die;
+
   auto without_const = type;
   without_const.clr_const();
   auto child_die = get_or_add_type(dbg, cu, without_const, record);
@@ -169,6 +174,8 @@ static Dwarf_P_Die add_ptr_type(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
   Dwarf_Error err = 0;
 
   die = dwarf_new_die(dbg, DW_TAG_pointer_type, cu, NULL, NULL, NULL, &err);
+  record[type] = die;
+
   auto without_ptr = type;
   without_ptr.remove_ptr_or_array();
   auto child_die = get_or_add_type(dbg, cu, without_ptr, record);
@@ -197,19 +204,15 @@ static Dwarf_P_Die get_or_add_type(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
   // special cases for const, ptr, array, and struct
   if (type.is_const()) {
     die = add_const_type(dbg, cu, type, record);
-    record[type] = die;
     return die;
   } else if (type.is_ptr()) {
     die = add_ptr_type(dbg, cu, type, record);
-    record[type] = die;
     return die;
   } else if (type.is_array()) {
     die = add_array_type(dbg, cu, type, record);
-    record[type] = die;
     return die;
   } else if (type.is_struct()) {
     die = add_struct_type(dbg, cu, type, record);
-    record[type] = die;
     return die;
   }
 
@@ -475,11 +478,10 @@ void idaapi run(int) {
     get_input_file_path(filepath, QMAXPATH);
     get_root_filename(filename, QMAXPATH);
 
-    // TODO make this portable
 #ifdef __NT__
     char *filepath_end = strrchr(filepath, '\\');
 #else
-	char *filepath_end = strrchr(filepath, '/');
+    char *filepath_end = strrchr(filepath, '/');
 #endif
     if (filepath_end != nullptr) {
       *(filepath_end + 1) = '\0';
@@ -500,9 +502,6 @@ void idaapi run(int) {
       auto info = generate_dwarf_object(m);
       add_debug_info(info->dbg, sourcefile, filepath, c_filename);
       write_dwarf_file(m, info, filepath + elf_filename);
-
-    } else {
-      warning("A dwarfexport error occurred");
     }
   } catch (const std::exception &e) {
     std::string msg = "A dwarfexport error occurred: " + std::string(e.what());
