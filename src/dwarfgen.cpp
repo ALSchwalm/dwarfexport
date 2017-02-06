@@ -46,6 +46,7 @@
 #include <sys/stat.h> //open
 #include <unistd.h>
 #include <vector>
+#include <idp.hpp>
 
 #include "dwarfexport.h"
 
@@ -255,19 +256,15 @@ std::shared_ptr<DwarfGenInfo> generate_dwarf_object(Mode m) {
   const char *isa_name = (m == Mode::BIT32) ? "x86" : "x86_64";
   const char *dwarf_version = "V2";
 
-  //TODO: support other endians
-  int endian = DW_DLC_TARGET_LITTLEENDIAN;
+  int endian = (inf.mf) ? DW_DLC_TARGET_BIGENDIAN : DW_DLC_TARGET_LITTLEENDIAN;
   Dwarf_Ptr errarg = 0;
   Dwarf_Error err = 0;
 
   int res =
-    dwarf_producer_init(DW_DLC_WRITE | ptrsizeflagbit | offsetsizeflagbit |
+      dwarf_producer_init(DW_DLC_WRITE | ptrsizeflagbit | offsetsizeflagbit |
                               DW_DLC_SYMBOLIC_RELOCATIONS | endian,
-                          CallbackFunc,
-                          0,
-                          errarg, (void *)info.get(), isa_name, dwarf_version,
-                          0,
-                          &info->dbg, &err);
+                          CallbackFunc, 0, errarg, (void *)info.get(), isa_name,
+                          dwarf_version, 0, &info->dbg, &err);
   if (res != DW_DLV_OK) {
     dwarfexport_error("dwarfgen: Failed init_b");
   }
@@ -283,6 +280,20 @@ void write_dwarf_file(Mode m, std::shared_ptr<DwarfGenInfo> info,
                       const std::string &filename) {
   write_object_file(m, info, filename);
   dwarf_producer_finish(info->dbg, 0);
+}
+
+static int get_elf_machine_type(Mode m) {
+  switch (ph.id) {
+  case PLFM_386:
+    return (m == Mode::BIT32) ? EM_386 : EM_X86_64;
+  case PLFM_PPC:
+    return (m == Mode::BIT32) ? EM_PPC : EM_PPC64;
+  case PLFM_ARM:
+    return (m == Mode::BIT32) ? EM_ARM : EM_AARCH64;
+  default:
+    msg("Unknown processor type, using EM_386");
+    return EM_386;
+  }
 }
 
 static void write_object_file(Mode m, std::shared_ptr<DwarfGenInfo> info,
@@ -317,13 +328,12 @@ static void write_object_file(Mode m, std::shared_ptr<DwarfGenInfo> info,
   eh.e_ident[EI_MAG2] = ELFMAG2;
   eh.e_ident[EI_MAG3] = ELFMAG3;
   eh.e_ident[EI_CLASS] = elfclass;
-  eh.e_ident[EI_DATA] = ELFDATA2LSB;
+  eh.e_ident[EI_DATA] = (inf.mf) ? ELFDATA2MSB : ELFDATA2LSB;;
   eh.e_ident[EI_VERSION] = EV_CURRENT;
 
-  //TODO: support other arches
   // This has to be right for gdb. Otherwise, it truncates the
   // addresses computed from dwarf info.
-  eh.e_machine = (m == Mode::BIT32) ? EM_386 : EM_X86_64;
+  eh.e_machine = get_elf_machine_type(m);
 
   //  We do not bother to create program headers, so
   //  mark this as ET_REL.
