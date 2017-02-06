@@ -298,6 +298,24 @@ static Dwarf_P_Die add_variable(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
       dwarfexport_error("dwarf_add_AT_location_expr failed: ",
                         dwarf_errmsg(err));
     }
+  } else if (!var.is_arg_var() && var.location.is_reg1()) {
+    // Try to get the DWARF register number from the IDA register number.
+    // For whatever reason, the mapping is different for registers when
+    // passing arguments, so we don't do those.
+    auto reg_num = translate_register_num(var.location.reg1());
+
+    if (reg_num != -1) {
+      Dwarf_P_Expr loc_expr = dwarf_new_expr(dbg, &err);
+      if (dwarf_add_expr_gen(loc_expr, DW_OP_regx, reg_num, 0, &err) ==
+          DW_DLV_NOCOUNT) {
+        dwarfexport_error("dwarf_add_expr_gen failed: ", dwarf_errmsg(err));
+      }
+      if (dwarf_add_AT_location_expr(dbg, die, DW_AT_location, loc_expr,
+                                     &err) == nullptr) {
+        dwarfexport_error("dwarf_add_AT_location_expr failed: ",
+                          dwarf_errmsg(err));
+      }
+    }
   }
 
   return die;

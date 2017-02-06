@@ -80,5 +80,6 @@ struct DwarfGenInfo {
 std::shared_ptr<DwarfGenInfo> generate_dwarf_object(Mode m);
 void write_dwarf_file(Mode m, std::shared_ptr<DwarfGenInfo> info,
                       const std::string &filename);
+int translate_register_num(int ida_reg_num);
 
 #endif
