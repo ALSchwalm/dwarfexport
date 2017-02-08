@@ -520,7 +520,7 @@ void add_debug_info(Dwarf_P_Debug dbg, std::ofstream &sourcefile,
   if (f == nullptr) {
     // In some cases, the start of the section may not actually be a function,
     // so get the first available function.
-    f = get_next_func(f->startEA);
+    f = get_next_func(seg->startEA);
   }
 
   int linecount = 0;
