@@ -442,6 +442,55 @@ static Dwarf_P_Die add_function(Dwarf_P_Debug dbg, Dwarf_P_Die cu, func_t *func,
   return die;
 }
 
+void add_global_variables(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
+                          type_record_t &record) {
+  Dwarf_Error err = 0;
+  auto seg_count = get_segm_qty();
+
+  for (auto i = 0; i < seg_count; ++i) {
+    auto seg = getnseg(i);
+    if (seg->type != SEG_DATA && seg->type != SEG_BSS) {
+      continue;
+    }
+
+    for (auto addr = seg->startEA; addr < seg->endEA; ++addr) {
+      char name[MAXSTR];
+      if (!get_name(BADADDR, addr, name, MAXSTR)) {
+        continue;
+      }
+
+      tinfo_t type;
+      if (guess_tinfo2(addr, &type) != GUESS_FUNC_OK) {
+        continue;
+      }
+
+      auto die =
+          dwarf_new_die(dbg, DW_TAG_variable, cu, NULL, NULL, NULL, &err);
+      auto var_type_die = get_or_add_type(dbg, cu, type, record);
+
+      if (dwarf_add_AT_name(die, name, &err) == NULL) {
+        dwarfexport_error("dwarf_add_AT_name failed: ", dwarf_errmsg(err));
+      }
+
+      if (dwarf_add_AT_reference(dbg, die, DW_AT_type, var_type_die, &err) ==
+          nullptr) {
+        dwarfexport_error("dwarf_add_AT_reference failed: ", dwarf_errmsg(err));
+      }
+
+      // FIXME: this won't work in shared libs
+      Dwarf_P_Expr loc_expr = dwarf_new_expr(dbg, &err);
+      if (dwarf_add_expr_addr_b(loc_expr, addr, 0, &err) == DW_DLV_NOCOUNT) {
+        dwarfexport_error("dwarf_add_expr_gen failed: ", dwarf_errmsg(err));
+      }
+      if (dwarf_add_AT_location_expr(dbg, die, DW_AT_location, loc_expr,
+                                     &err) == nullptr) {
+        dwarfexport_error("dwarf_add_AT_location_expr failed: ",
+                          dwarf_errmsg(err));
+      }
+    }
+  }
+}
+
 void add_debug_info(Dwarf_P_Debug dbg, std::ofstream &sourcefile,
                     std::string filepath, std::string c_filename) {
   Dwarf_Error err = 0;
@@ -491,6 +540,9 @@ void add_debug_info(Dwarf_P_Debug dbg, std::ofstream &sourcefile,
   if (dwarf_add_die_to_debug(dbg, cu, &err) != DW_DLV_OK) {
     dwarfexport_error("dwarf_add_die_to_debug failed: ", dwarf_errmsg(err));
   }
+
+  // Add the global variables (but don't add a file location)
+  add_global_variables(dbg, cu, record);
 }
 
 int idaapi init(void) {
