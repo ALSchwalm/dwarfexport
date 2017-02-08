@@ -462,12 +462,21 @@ void add_debug_info(Dwarf_P_Debug dbg, std::ofstream &sourcefile,
 
   dwarf_add_AT_comp_dir(cu, &filepath[0], &err);
 
-  int linecount = 0;
   segment_t *seg = get_segm_by_name(".text");
-  type_record_t record;
+  if (seg == nullptr) {
+    dwarfexport_error("Unable to located text section. Aborting.");
+  }
 
-  for (func_t *f = get_func(seg->startEA); f != nullptr;
-       f = get_next_func(f->startEA)) {
+  func_t *f = get_func(seg->startEA);
+  if (f == nullptr) {
+    // In some cases, the start of the section may not actually be a function,
+    // so get the first available function.
+    f = get_next_func(f->startEA);
+  }
+
+  int linecount = 0;
+  type_record_t record;
+  for (; f != nullptr; f = get_next_func(f->startEA)) {
     if (f->startEA > seg->endEA) {
       break;
     }
