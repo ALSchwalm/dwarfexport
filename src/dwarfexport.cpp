@@ -343,6 +343,11 @@ static void add_disassembler_func_info(std::shared_ptr<DwarfGenInfo> info,
 
   for (std::size_t i = 0; i < frame->memqty; ++i) {
     auto name = get_member_name2(frame->members[i].id);
+
+    if (name == " s" || name == " r") {
+      continue;
+    }
+
     auto stack_location = frame->members[i].soff - offset;
 
     if (sizeof(ea_t) == 4) {
