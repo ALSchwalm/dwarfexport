@@ -279,7 +279,7 @@ static void write_object_file(std::shared_ptr<DwarfGenInfo> info,
   eh.e_ident[EI_MAG3] = ELFMAG3;
   eh.e_ident[EI_CLASS] = elfclass;
   eh.e_ident[EI_DATA] = (inf.mf) ? ELFDATA2MSB : ELFDATA2LSB;
-  ;
+
   eh.e_ident[EI_VERSION] = EV_CURRENT;
 
   // This has to be right for gdb. Otherwise, it truncates the
@@ -431,8 +431,6 @@ static unsigned int write_symbol_section(std::shared_ptr<DwarfGenInfo> info) {
 
   for (unsigned int i = 0; i < symbols.size(); ++i) {
     GElf_Sym sym;
-
-    printf("%d: %d\n", i, symbols[i].getNameIndex());
 
     sym.st_name = symbols[i].getNameIndex();
     sym.st_value = symbols[i].getSymbolValue();

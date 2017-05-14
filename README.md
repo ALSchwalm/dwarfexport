@@ -12,7 +12,7 @@ Usage
 
 Pre-compiled copies of `dwarfexport` are available in the `bin` folder of this
 project. Just add these files to your IDA `plugins` folder (plx and plx64 for linux,
-plw and p64 for windows) and you will have a new option 
+plw and p64 for windows) and you will have a new option
 "Edit->Plugins->Export Dwarf Debug Info". Click this and select a folder for the
 output.
 
@@ -26,10 +26,12 @@ then from gdb, run:
 
     (gdb) symbol-file a.out.elf
 
-Afterwords you will have full debug information, like normal gdb with source 
+Afterwords you will have full debug information, like normal gdb with source
 (shown below using TUI mode):
 
 ![debugging in gdb](/resources/screenshot.png)
+
+*Note: You may need to run `list` to get the source file loaded.*
 
 Building On Linux
 -----------------

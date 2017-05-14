@@ -587,7 +587,7 @@ void idaapi run(int) {
       std::ofstream sourcefile(filepath + c_filename);
 
       auto info = generate_dwarf_object();
-      add_debug_info(info, sourcefile, filepath, c_filename);
+      add_debug_info(info, sourcefile, ".", c_filename);
       write_dwarf_file(info, filepath + elf_filename);
 
     } else {
