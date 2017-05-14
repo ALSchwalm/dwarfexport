@@ -9,9 +9,11 @@
 #include <loader.hpp>
 #include <name.hpp>
 #include <string>
+#include <struct.hpp>
 
 #include "dwarfexport.h"
 
+static bool has_decompiler = false;
 hexdsp_t *hexdsp = NULL;
 
 using type_record_t = std::map<tinfo_t, Dwarf_P_Die>;
@@ -320,6 +322,138 @@ static Dwarf_P_Die add_variable(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
   return die;
 }
 
+static void add_disassembler_func_info(std::shared_ptr<DwarfGenInfo> info,
+                                       Dwarf_P_Die func_die, Dwarf_P_Die cu,
+                                       func_t *func, type_record_t &record) {
+  auto dbg = info->dbg;
+  Dwarf_Error err = 0;
+
+  auto frame = get_frame(func);
+  if (frame == nullptr) {
+    return;
+  }
+
+  auto size = get_struc_size(frame->id);
+  auto saved_regs = get_member_by_name(frame, " s");
+  if (saved_regs == nullptr) {
+    return;
+  }
+  auto saved_regs_off = saved_regs->soff;
+  auto offset = size - (size - saved_regs_off);
+
+  for (std::size_t i = 0; i < frame->memqty; ++i) {
+    auto name = get_member_name2(frame->members[i].id);
+    auto stack_location = frame->members[i].soff - offset;
+
+    if (sizeof(ea_t) == 4) {
+      // Fixup base offset for dwarf (not sure why this is 8)
+      stack_location -= 8;
+    } else {
+      // Fixup base offset for dwarf (not sure why this is 16)
+      stack_location -= 16;
+    }
+
+    Dwarf_P_Die die;
+    die = dwarf_new_die(dbg, DW_TAG_variable, func_die, NULL, NULL, NULL, &err);
+
+    if (dwarf_add_AT_name(die, &name[0], &err) == NULL) {
+      dwarfexport_error("dwarf_add_AT_name failed: ", dwarf_errmsg(err));
+    }
+
+    Dwarf_P_Expr loc_expr = dwarf_new_expr(dbg, &err);
+    if (dwarf_add_expr_gen(loc_expr, DW_OP_fbreg, stack_location, 0, &err) ==
+        DW_DLV_NOCOUNT) {
+      dwarfexport_error("dwarf_add_expr_gen failed: ", dwarf_errmsg(err));
+    }
+    if (dwarf_add_AT_location_expr(dbg, die, DW_AT_location, loc_expr, &err) ==
+        nullptr) {
+      dwarfexport_error("dwarf_add_AT_location_expr failed: ",
+                        dwarf_errmsg(err));
+    }
+  }
+}
+
+static void add_decompiler_func_info(std::shared_ptr<DwarfGenInfo> info,
+                                     Dwarf_P_Die func_die, Dwarf_P_Die cu,
+                                     func_t *func, std::ofstream &file,
+                                     int &linecount, Dwarf_Unsigned file_index,
+                                     type_record_t &record) {
+  auto dbg = info->dbg;
+  Dwarf_Error err = 0;
+
+  hexrays_failure_t hf;
+  cfuncptr_t cfunc = decompile(func, &hf);
+
+  if (cfunc == nullptr) {
+    return;
+  }
+
+  // Add ret type
+  tinfo_t func_type_info;
+  if (cfunc->get_func_type(&func_type_info)) {
+    auto rettype = func_type_info.get_rettype();
+    auto rettype_die = get_or_add_type(dbg, cu, rettype, record);
+
+    if (dwarf_add_AT_reference(dbg, func_die, DW_AT_type, rettype_die, &err) ==
+        nullptr) {
+      dwarfexport_error("dwarf_add_AT_reference failed: ", dwarf_errmsg(err));
+    }
+  }
+
+  // Add lvars (from decompiler)
+  auto &lvars = *cfunc->get_lvars();
+  for (std::size_t i = 0; i < lvars.size(); ++i) {
+    if (lvars[i].name.size()) {
+      add_variable(dbg, cu, func_die, cfunc, lvars[i], record);
+    }
+  }
+
+  // Add line info
+  const auto &sv = cfunc->get_pseudocode();
+  for (std::size_t i = 0; i < sv.size(); ++i) {
+    char buf[MAXSTR];
+    const char *line = sv[i].line.c_str();
+    tag_remove(line, buf, MAXSTR);
+
+    auto stripped_buf = std::string(buf);
+    file << stripped_buf + "\n";
+    linecount += 1;
+
+    ctree_item_t item;
+    std::size_t index = stripped_buf.find_first_not_of(' ');
+    if (index == std::string::npos) {
+      continue;
+    }
+
+    // For each column in the line, try to find a cexpr_t that has an
+    // address inside the function, then emit a dwarf source line info
+    // for that.
+    for (; index < stripped_buf.size(); ++index) {
+      if (!cfunc->get_line_item(line, index, true, nullptr, &item, nullptr)) {
+        continue;
+      }
+
+      // item.get_ea returns strange values, so use the item_t ea for exprs
+      // for now
+      if (item.citype != VDI_EXPR || !item.it->is_expr()) {
+        continue;
+      }
+
+      ea_t addr = item.e->ea;
+
+      // The address for this expression is outside of this function,
+      // so something strange is happening. Just ignore it.
+      if (addr == (ea_t)-1 || addr < func->startEA || addr > func->endEA) {
+        continue;
+      }
+
+      dwarf_add_line_entry(dbg, file_index, addr, linecount, 0, true, false,
+                           &err);
+      break;
+    }
+  }
+}
+
 static Dwarf_P_Die add_function(std::shared_ptr<DwarfGenInfo> info,
                                 Dwarf_P_Die cu, func_t *func,
                                 std::ofstream &file, int &linecount,
@@ -371,78 +505,18 @@ static Dwarf_P_Die add_function(std::shared_ptr<DwarfGenInfo> info,
   auto symbol_index_value = symbol_index.getSymIndex();
   dwarf_add_AT_targ_address(dbg, die, DW_AT_low_pc, func->startEA,
                             symbol_index_value, &err);
-  dwarf_add_AT_targ_address(dbg, die, DW_AT_high_pc, func->endEA,
+  dwarf_add_AT_targ_address(dbg, die, DW_AT_high_pc, func->endEA - 1,
                             symbol_index_value, &err);
 
-  hexrays_failure_t hf;
-  cfuncptr_t cfunc = decompile(func, &hf);
+  // The start of every function should have a line entry
+  dwarf_add_line_entry(dbg, file_index, func->startEA, linecount, 0, true,
+                       false, &err);
 
-  if (cfunc == nullptr) {
-    return die;
-  }
-
-  // Add ret type
-  tinfo_t func_type_info;
-  if (cfunc->get_func_type(&func_type_info)) {
-    auto rettype = func_type_info.get_rettype();
-    auto rettype_die = get_or_add_type(dbg, cu, rettype, record);
-
-    if (dwarf_add_AT_reference(dbg, die, DW_AT_type, rettype_die, &err) ==
-        nullptr) {
-      dwarfexport_error("dwarf_add_AT_reference failed: ", dwarf_errmsg(err));
-    }
-  }
-
-  auto &lvars = *cfunc->get_lvars();
-  for (std::size_t i = 0; i < lvars.size(); ++i) {
-    if (lvars[i].name.size()) {
-      add_variable(dbg, cu, die, cfunc, lvars[i], record);
-    }
-  }
-
-  // Add line info
-  const auto &sv = cfunc->get_pseudocode();
-  for (std::size_t i = 0; i < sv.size(); ++i) {
-    char buf[MAXSTR];
-    const char *line = sv[i].line.c_str();
-    tag_remove(line, buf, MAXSTR);
-
-    auto stripped_buf = std::string(buf);
-    file << stripped_buf + "\n";
-    linecount += 1;
-
-    ctree_item_t item;
-    std::size_t index = stripped_buf.find_first_not_of(' ');
-    if (index == std::string::npos) {
-      continue;
-    }
-
-    // For each column in the line, try to find a cexpr_t that has an
-    // address inside the function, then emit a dwarf source line info
-    // for that.
-    for (; index < stripped_buf.size(); ++index) {
-      if (!cfunc->get_line_item(line, index, true, nullptr, &item, nullptr)) {
-        continue;
-      }
-
-      // item.get_ea returns strange values, so use the item_t ea for exprs
-      // for now
-      if (item.citype != VDI_EXPR || !item.it->is_expr()) {
-        continue;
-      }
-
-      ea_t addr = item.e->ea;
-
-      // The address for this expression is outside of this function,
-      // so something strange is happening. Just ignore it.
-      if (addr == (ea_t)-1 || addr < func->startEA || addr > func->endEA) {
-        continue;
-      }
-
-      dwarf_add_line_entry(dbg, file_index, addr, linecount, 0, true, false,
-                           &err);
-      break;
-    }
+  if (has_decompiler) {
+    add_decompiler_func_info(info, cu, die, func, file, linecount, file_index,
+                             record);
+  } else {
+    add_disassembler_func_info(info, cu, die, func, record);
   }
 
   return die;
@@ -554,8 +628,8 @@ void add_debug_info(std::shared_ptr<DwarfGenInfo> info,
 }
 
 int idaapi init(void) {
-  if (!init_hexrays_plugin())
-    return PLUGIN_SKIP;
+  if (init_hexrays_plugin())
+    has_decompiler = true;
   return PLUGIN_OK;
 }
 
