@@ -452,6 +452,10 @@ static void add_decompiler_func_info(std::shared_ptr<DwarfGenInfo> info,
       break;
     }
   }
+
+  // Add a little space between the functions
+  file << "\n\n";
+  linecount += 2;
 }
 
 static Dwarf_P_Die add_function(std::shared_ptr<DwarfGenInfo> info,
@@ -613,10 +617,6 @@ void add_debug_info(std::shared_ptr<DwarfGenInfo> info,
     }
 
     add_function(info, cu, f, sourcefile, linecount, file_index, record);
-
-    // Add a little space between the functions
-    sourcefile << "\n\n";
-    linecount += 2;
   }
 
   if (dwarf_add_die_to_debug(dbg, cu, &err) != DW_DLV_OK) {
