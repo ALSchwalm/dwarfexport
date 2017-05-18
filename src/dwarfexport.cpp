@@ -382,6 +382,7 @@ static void add_decompiler_func_info(std::shared_ptr<DwarfGenInfo> info,
                                      Dwarf_P_Die cu, Dwarf_P_Die func_die,
                                      func_t *func, std::ofstream &file,
                                      int &linecount, Dwarf_Unsigned file_index,
+                                     Dwarf_Unsigned symbol_index,
                                      type_record_t &record) {
   auto dbg = info->dbg;
   Dwarf_Error err = 0;
@@ -452,8 +453,8 @@ static void add_decompiler_func_info(std::shared_ptr<DwarfGenInfo> info,
         continue;
       }
 
-      dwarf_lne_set_address(dbg, addr, 0, &err);
-      dwarf_add_line_entry(dbg, file_index, addr, linecount, 0, true, false,
+      dwarf_lne_set_address(dbg, addr, symbol_index, &err);
+      dwarf_add_line_entry(dbg, file_index, addr, linecount, index, true, false,
                            &err);
       break;
     }
@@ -524,7 +525,7 @@ static Dwarf_P_Die add_function(std::shared_ptr<DwarfGenInfo> info,
 
   if (has_decompiler) {
     add_decompiler_func_info(info, cu, die, func, file, linecount, file_index,
-                             record);
+                             symbol_index_value, record);
   } else {
     add_disassembler_func_info(info, cu, die, func, record);
   }
