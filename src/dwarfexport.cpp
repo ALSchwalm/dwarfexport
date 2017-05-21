@@ -16,6 +16,16 @@
 static bool has_decompiler = false;
 hexdsp_t *hexdsp = NULL;
 
+struct Options {
+  char filepath[QMAXPATH];
+  char filename[QMAXPATH];
+  std::string dwarf_source_path = ".";
+  unsigned short use_decompiler = has_decompiler;
+
+  std::string c_filename() const { return filename + std::string(".c"); }
+  std::string elf_filename() const { return filename + std::string(".elf"); }
+};
+
 using type_record_t = std::map<tinfo_t, Dwarf_P_Die>;
 
 static Dwarf_P_Die get_or_add_type(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
@@ -466,7 +476,7 @@ static void add_decompiler_func_info(std::shared_ptr<DwarfGenInfo> info,
 }
 
 static Dwarf_P_Die add_function(std::shared_ptr<DwarfGenInfo> info,
-                                Dwarf_P_Die cu, func_t *func,
+                                Options &options, Dwarf_P_Die cu, func_t *func,
                                 std::ofstream &file, int &linecount,
                                 Dwarf_Unsigned file_index,
                                 type_record_t &record) {
@@ -523,7 +533,7 @@ static Dwarf_P_Die add_function(std::shared_ptr<DwarfGenInfo> info,
   dwarf_add_line_entry(dbg, file_index, func->startEA, linecount, 0, true,
                        false, &err);
 
-  if (has_decompiler) {
+  if (has_decompiler && options.use_decompiler) {
     add_decompiler_func_info(info, cu, die, func, file, linecount, file_index,
                              symbol_index_value, record);
   } else {
@@ -583,8 +593,7 @@ void add_global_variables(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
 }
 
 void add_debug_info(std::shared_ptr<DwarfGenInfo> info,
-                    std::ofstream &sourcefile, std::string filepath,
-                    std::string c_filename) {
+                    std::ofstream &sourcefile, Options &options) {
   auto dbg = info->dbg;
   Dwarf_Error err = 0;
   Dwarf_P_Die cu;
@@ -594,15 +603,16 @@ void add_debug_info(std::shared_ptr<DwarfGenInfo> info,
     dwarfexport_error("dwarf_new_die failed: ", dwarf_errmsg(err));
   }
 
-  if (dwarf_add_AT_name(cu, &c_filename[0], &err) == nullptr) {
+  if (dwarf_add_AT_name(cu, &options.c_filename()[0], &err) == nullptr) {
     dwarfexport_error("dwarf_add_AT_name failed: ", dwarf_errmsg(err));
   }
 
-  auto dir_index = dwarf_add_directory_decl(dbg, &filepath[0], &err);
+  auto dir_index =
+      dwarf_add_directory_decl(dbg, &options.dwarf_source_path[0], &err);
   auto file_index =
-      dwarf_add_file_decl(dbg, &c_filename[0], dir_index, 0, 0, &err);
+      dwarf_add_file_decl(dbg, &options.c_filename()[0], dir_index, 0, 0, &err);
 
-  dwarf_add_AT_comp_dir(cu, &filepath[0], &err);
+  dwarf_add_AT_comp_dir(cu, &options.dwarf_source_path[0], &err);
 
   segment_t *seg = get_segm_by_name(".text");
   if (seg == nullptr) {
@@ -623,7 +633,8 @@ void add_debug_info(std::shared_ptr<DwarfGenInfo> info,
       break;
     }
 
-    add_function(info, cu, f, sourcefile, linecount, file_index, record);
+    add_function(info, options, cu, f, sourcefile, linecount, file_index,
+                 record);
   }
 
   if (dwarf_add_die_to_debug(dbg, cu, &err) != DW_DLV_OK) {
@@ -642,15 +653,15 @@ int idaapi init(void) {
 
 void idaapi run(int) {
   try {
-    char filepath[QMAXPATH];
-    char filename[QMAXPATH];
-    get_input_file_path(filepath, QMAXPATH);
-    get_root_filename(filename, QMAXPATH);
+    Options options;
+
+    get_input_file_path(options.filepath, QMAXPATH);
+    get_root_filename(options.filename, QMAXPATH);
 
 #ifdef __NT__
-    char *filepath_end = strrchr(filepath, '\\');
+    char *filepath_end = strrchr(options.filepath, '\\');
 #else
-    char *filepath_end = strrchr(filepath, '/');
+    char *filepath_end = strrchr(options.filepath, '/');
 #endif
     if (filepath_end != nullptr) {
       *(filepath_end + 1) = '\0';
@@ -659,20 +670,17 @@ void idaapi run(int) {
     const char *dialog = "STARTITEM 0\n"
                          "Dwarf Export\n\n"
                          "Select the location to save the exported data:\n"
-                         "<Save:F:1:::>\n";
+                         "<Save:F:1:::>\n"
+                         "Export Options <Use Decompiler:C>>\n";
 
-    if (AskUsingForm_c(dialog, filepath) == 1) {
-      auto elf_filename = std::string(filename) + ".elf";
-      auto c_filename = std::string(filename) + ".c";
+    if (AskUsingForm_c(dialog, options.filepath, &options.use_decompiler) ==
+        1) {
 
-      std::ofstream sourcefile(filepath + c_filename);
+      std::ofstream sourcefile(options.c_filename());
 
       auto info = generate_dwarf_object();
-      add_debug_info(info, sourcefile, ".", c_filename);
-      write_dwarf_file(info, filepath + elf_filename);
-
-    } else {
-      warning("A dwarfexport error occurred");
+      add_debug_info(info, sourcefile, options);
+      write_dwarf_file(info, options.elf_filename());
     }
   } catch (const std::exception &e) {
     std::string msg = "A dwarfexport error occurred: " + std::string(e.what());
