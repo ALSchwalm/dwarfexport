@@ -16,16 +16,6 @@
 static bool has_decompiler = false;
 hexdsp_t *hexdsp = NULL;
 
-struct Options {
-  char filepath[QMAXPATH];
-  char filename[QMAXPATH];
-  std::string dwarf_source_path = ".";
-  unsigned short use_decompiler = has_decompiler;
-
-  std::string c_filename() const { return filename + std::string(".c"); }
-  std::string elf_filename() const { return filename + std::string(".elf"); }
-};
-
 using type_record_t = std::map<tinfo_t, Dwarf_P_Die>;
 
 static Dwarf_P_Die get_or_add_type(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
@@ -680,7 +670,7 @@ void idaapi run(int) {
 
       auto info = generate_dwarf_object();
       add_debug_info(info, sourcefile, options);
-      write_dwarf_file(info, options.elf_filename());
+      write_dwarf_file(info, options);
     }
   } catch (const std::exception &e) {
     std::string msg = "A dwarfexport error occurred: " + std::string(e.what());

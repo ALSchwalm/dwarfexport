@@ -46,12 +46,14 @@
 #include <sys/stat.h> //open
 #include <unistd.h>
 #include <vector>
-#include <idp.hpp>
 
 #include "dwarfexport.h"
 
-static void write_object_file(std::shared_ptr<DwarfGenInfo> info,
-                              const std::string &filename);
+static void generate_file_with_dbg_info(std::shared_ptr<DwarfGenInfo> info,
+                                        const std::string &filename);
+static void generate_copy_with_dbg_info(std::shared_ptr<DwarfGenInfo> info,
+                                        const std::string &src,
+                                        const std::string &dst);
 static void write_generated_dbg(std::shared_ptr<DwarfGenInfo> info);
 
 static unsigned int write_text_section(std::shared_ptr<DwarfGenInfo> info);
@@ -59,7 +61,6 @@ static unsigned int write_shstrtab_section(std::shared_ptr<DwarfGenInfo> info);
 static unsigned int write_symbol_section(std::shared_ptr<DwarfGenInfo> info);
 
 int create_a_file(const char *name);
-void close_a_file(int f);
 
 //  It's very easy to confuse the section number in an elf file
 //  with an array index in dwarfgen.
@@ -136,7 +137,7 @@ static SectionFromDwarf &FindMySection(const ElfSectIndex &elf_section_index) {
     return dwsectab[i];
   }
 
-  dwarfexport_error("dwarfgen: Unable to find my dw sec data for elf section");
+  dwarfexport_error("Unable to find my dw sec data for elf section");
 }
 
 int CallbackFunc(const char *name, int size, Dwarf_Unsigned type,
@@ -144,6 +145,12 @@ int CallbackFunc(const char *name, int size, Dwarf_Unsigned type,
                  Dwarf_Unsigned *sect_name_symbol_index, void *userdata,
                  int *) {
   DwarfGenInfo &geninfo = *(DwarfGenInfo *)userdata;
+
+  // For now, skip the rel section
+  if (!strcmp(name, ".rel.debug_info")) {
+    return 0;
+  }
+
   SectionFromDwarf ds(name, size, type, flags, link, info, geninfo.secstrtab,
                       geninfo.symbols);
 
@@ -163,27 +170,31 @@ int CallbackFunc(const char *name, int size, Dwarf_Unsigned type,
 static ElfSectIndex create_dw_elf(Elf *elf, SectionFromDwarf &ds) {
   Elf_Scn *scn = elf_newscn(elf);
   if (!scn) {
-    dwarfexport_error("dwarfgen: Unable to elf_newscn() on ", ds.name_);
+    dwarfexport_error("Unable to elf_newscn() on ", ds.name_);
   }
 
   GElf_Shdr shdr;
 
   if (!gelf_getshdr(scn, &shdr)) {
-    dwarfexport_error("dwarfgen: Unable to elf_getshdr() on ", ds.name_);
+    dwarfexport_error("Unable to elf_getshdr() on ", ds.name_);
   }
   shdr.sh_name = ds.section_name_itself_;
   shdr.sh_type = ds.type_;
   shdr.sh_flags = ds.flags_;
   shdr.sh_addr = 0;
-  shdr.sh_offset = 0;
-  shdr.sh_size = ds.size_;
+  std::cout << "Setting sh_size of " << ds.name_ << " to " << ds.size_
+            << std::endl;
   shdr.sh_link = ds.link_;
   shdr.sh_info = ds.info_;
   shdr.sh_addralign = 1;
   shdr.sh_entsize = 0;
 
+  // We set these correctly later
+  shdr.sh_size = 0;
+  shdr.sh_offset = 0;
+
   if (!gelf_update_shdr(scn, &shdr)) {
-    dwarfexport_error("dwarfgen: Unable to gelf_update_shdr() on ", ds.name_);
+    dwarfexport_error("Unable to gelf_update_shdr() on ", ds.name_);
   }
 
   ElfSectIndex si(elf_ndxscn(scn));
@@ -214,19 +225,23 @@ std::shared_ptr<DwarfGenInfo> generate_dwarf_object() {
                           CallbackFunc, 0, errarg, (void *)info.get(), isa_name,
                           dwarf_version, 0, &info->dbg, &err);
   if (res != DW_DLV_OK) {
-    dwarfexport_error("dwarfgen: Failed init_b");
+    dwarfexport_error("dwarf_producer_init failed");
   }
   res = dwarf_pro_set_default_string_form(info->dbg, DW_FORM_string, &err);
   if (res != DW_DLV_OK) {
-    dwarfexport_error("dwarfgen: Failed dwarf_pro_set_default_string_form");
+    dwarfexport_error("dwarf_pro_set_default_string_form failed");
   }
 
   return info;
 }
 
 void write_dwarf_file(std::shared_ptr<DwarfGenInfo> info,
-                      const std::string &filename) {
-  write_object_file(info, filename);
+                      const Options &options) {
+  if (options.attach_debug_info) {
+    generate_copy_with_dbg_info(info, options.filename, options.dbg_filename());
+  } else {
+    generate_file_with_dbg_info(info, options.dbg_filename());
+  }
   dwarf_producer_finish(info->dbg, 0);
 }
 
@@ -244,22 +259,141 @@ static int get_elf_machine_type(Mode m) {
   }
 }
 
-static void write_object_file(std::shared_ptr<DwarfGenInfo> info,
-                              const std::string &filename) {
+static void generate_copy_with_dbg_info(std::shared_ptr<DwarfGenInfo> info,
+                                        const std::string &src,
+                                        const std::string &dst) {
+  int fd_in = -1, fd_out = -1;
+  Elf *elf_in = 0, *elf_out = 0;
+
+  Elf_Scn *scn_in, *scn_out;
+  GElf_Ehdr ehdr_in, ehdr_out;
+
+  int scn_index = 0;
+
+  if (elf_version(EV_CURRENT) == EV_NONE)
+    dwarfexport_error("ELF library initialization failed: ", elf_errmsg(-1));
+
+  if ((fd_in = open(src.c_str(), O_RDONLY, 0)) < 0)
+    dwarfexport_error("open failed: ", src);
+
+  if ((elf_in = elf_begin(fd_in, ELF_C_READ, NULL)) == NULL)
+    dwarfexport_error("elf_begin() failed: ", elf_errmsg(-1));
+
+  if (gelf_getehdr(elf_in, &ehdr_in) != &ehdr_in)
+    dwarfexport_error("gelf_getehdr() failed: ", elf_errmsg(-1));
+
+  /* Checks and warns */
+  if (elf_kind(elf_in) != ELF_K_ELF) {
+    dwarfexport_error(src, " : ", dst, " must be an ELF file.");
+  }
+
+  /* open output elf */
+  if ((fd_out = open(dst.c_str(), O_WRONLY | O_CREAT, 0777)) < 0)
+    dwarfexport_error("open failed: ", dst);
+
+  if ((elf_out = elf_begin(fd_out, ELF_C_WRITE, NULL)) == NULL)
+    dwarfexport_error("elf_begin() failed: ", elf_errmsg(-1));
+
+  /* create new elf header */
+  if (gelf_newehdr(elf_out, ehdr_in.e_ident[EI_CLASS]) == 0)
+    dwarfexport_error("gelf_newehdr() failed: ", elf_errmsg(-1));
+
+  info->elf = elf_out;
+  /* Some compilers produce binaries with non-adjacent sections, so
+   * we cannot use the automatic layout. Suppress it and use the exact
+   * layout from the input. */
+  if (elf_flagelf(elf_out, ELF_C_SET, ELF_F_LAYOUT) == 0)
+    dwarfexport_error("elf_flagelf failed: ", elf_errmsg(-1));
+
+  if (gelf_getehdr(elf_out, &ehdr_out) != &ehdr_out)
+    dwarfexport_error("gelf_getehdr() failed: ", elf_errmsg(-1));
+
+  ehdr_out = ehdr_in;
+
+  if (gelf_update_ehdr(elf_out, &ehdr_out) == 0)
+    dwarfexport_error("gelf_update_ehdr() failed: ", elf_errmsg(-1));
+
+  GElf_Phdr phdr_in, phdr_out;
+  int ph_ndx;
+
+  if (ehdr_in.e_phnum && gelf_newphdr(elf_out, ehdr_in.e_phnum) == 0)
+    dwarfexport_error("gelf_newphdr() failed: ", elf_errmsg(-1));
+
+  for (ph_ndx = 0; ph_ndx < ehdr_in.e_phnum; ++ph_ndx) {
+    if (gelf_getphdr(elf_in, ph_ndx, &phdr_in) != &phdr_in)
+      dwarfexport_error("gelf_getphdr() failed: ", elf_errmsg(-1));
+
+    if (gelf_getphdr(elf_out, ph_ndx, &phdr_out) != &phdr_out)
+      dwarfexport_error("gelf_getphdr() failed: ", elf_errmsg(-1));
+
+    phdr_out = phdr_in;
+
+    if (gelf_update_phdr(elf_out, ph_ndx, &phdr_out) == 0)
+      dwarfexport_error("gelf_update_phdr() failed: ", elf_errmsg(-1));
+  }
+
+  /* copy sections to new elf */
+  Elf_Data *data_in, *data_out;
+  GElf_Shdr shdr_in, shdr_out;
+  for (scn_index = 1; scn_index < ehdr_in.e_shnum; scn_index++) {
+    if ((scn_in = elf_getscn(elf_in, scn_index)) == NULL)
+      dwarfexport_error("getshdr() failed: ", elf_errmsg(-1));
+    if ((scn_out = elf_newscn(elf_out)) == NULL)
+      dwarfexport_error("elf_newscn() failed: ", elf_errmsg(-1));
+
+    if (gelf_getshdr(scn_in, &shdr_in) != &shdr_in)
+      dwarfexport_error("getshdr() failed: ", elf_errmsg(-1));
+
+    if (scn_index == ehdr_in.e_shstrndx) {
+      data_out = elf_newdata(scn_out);
+      data_out->d_buf = info->secstrtab.exposedata();
+      data_out->d_size = info->secstrtab.exposelen();
+    } else {
+      data_in = NULL;
+      while ((data_in = elf_getdata(scn_in, data_in)) != NULL) {
+        if ((data_out = elf_newdata(scn_out)) == NULL)
+          dwarfexport_error("elf_newdata() failed: ", elf_errmsg(-1));
+
+        *data_out = *data_in;
+      }
+    }
+
+    if (gelf_getshdr(scn_out, &shdr_out) != &shdr_out)
+      dwarfexport_error("gelf_getshdr() failed: ", elf_errmsg(-1));
+
+    shdr_out = shdr_in;
+
+    if (gelf_update_shdr(scn_out, &shdr_out) == 0)
+      dwarfexport_error("gelf_update_shdr() failed: ", elf_errmsg(-1));
+  }
+
+  write_generated_dbg(info);
+
+  if (elf_update(elf_out, ELF_C_WRITE) < 0)
+    dwarfexport_error("elf_update() failed: ", elf_errmsg(-1));
+
+  elf_end(elf_out);
+  close(fd_out);
+  elf_end(elf_in);
+  close(fd_in);
+}
+
+static void generate_file_with_dbg_info(std::shared_ptr<DwarfGenInfo> info,
+                                        const std::string &filename) {
   GElf_Ehdr eh;
 
   int fd = create_a_file(filename.c_str());
   if (fd < 0) {
-    dwarfexport_error("dwarfgen: Unable to open ", filename, " for writing.");
+    dwarfexport_error("Unable to open ", filename, " for writing.");
   }
 
   if (elf_version(EV_CURRENT) == EV_NONE) {
-    dwarfexport_error("dwarfgen: Bad elf_version");
+    dwarfexport_error("Bad elf_version");
   }
 
   info->elf = elf_begin(fd, ELF_C_WRITE, 0);
   if (!info->elf) {
-    dwarfexport_error("dwarfgen: Unable to elf_begin() on ", filename);
+    dwarfexport_error("Unable to elf_begin() on ", filename);
   }
 
   auto m = info->mode;
@@ -270,7 +404,7 @@ static void write_object_file(std::shared_ptr<DwarfGenInfo> info,
   }
 
   if (!gelf_getehdr(info->elf, &eh)) {
-    dwarfexport_error("dwarfgen: Unable to gelf_getehdr() on ", filename);
+    dwarfexport_error("Unable to gelf_getehdr() on ", filename);
   }
 
   eh.e_ident[EI_MAG0] = ELFMAG0;
@@ -300,29 +434,29 @@ static void write_object_file(std::shared_ptr<DwarfGenInfo> info,
   eh.e_shstrndx = write_shstrtab_section(info);
 
   if (!gelf_update_ehdr(info->elf, &eh)) {
-    dwarfexport_error("dwarfgen: gelf_update_ehdr error");
+    dwarfexport_error("gelf_update_ehdr error");
   }
 
   if (elf_update(info->elf, ELF_C_WRITE) == -1LL) {
     int eer = elf_errno();
-    dwarfexport_error("dwarfgen: Unable to elf_update() on ", filename, "  ",
+    dwarfexport_error("Unable to elf_update() on ", filename, "  ",
                       elf_errmsg(eer));
   }
 
   elf_end(info->elf);
-  close_a_file(fd);
+  close(fd);
 }
 
 static unsigned int write_text_section(std::shared_ptr<DwarfGenInfo> info) {
   unsigned osecnameoff = info->secstrtab.addString(".text");
   Elf_Scn *scn = elf_newscn(info->elf);
   if (!scn) {
-    dwarfexport_error("dwarfgen: Unable to elf_newscn()");
+    dwarfexport_error("Unable to elf_newscn()");
   }
 
   Elf_Data *ed = elf_newdata(scn);
   if (!ed) {
-    dwarfexport_error("dwarfgen: Unable to elf_newdata()");
+    dwarfexport_error("Unable to elf_newdata()");
   }
 
   const char *contents = "";
@@ -335,7 +469,7 @@ static unsigned int write_text_section(std::shared_ptr<DwarfGenInfo> info) {
 
   GElf_Shdr shdr;
   if (!gelf_getshdr(scn, &shdr)) {
-    dwarfexport_error("dwarfgen: Unable to elf_getshdr()");
+    dwarfexport_error("Unable to elf_getshdr()");
   }
   shdr.sh_name = osecnameoff;
   shdr.sh_type = SHT_PROGBITS;
@@ -349,7 +483,7 @@ static unsigned int write_text_section(std::shared_ptr<DwarfGenInfo> info) {
   shdr.sh_entsize = 0;
 
   if (!gelf_update_shdr(scn, &shdr)) {
-    dwarfexport_error("dwarfgen: Unable to gelf_update_shdr()");
+    dwarfexport_error("Unable to gelf_update_shdr()");
   }
 
   return elf_ndxscn(scn);
@@ -357,27 +491,27 @@ static unsigned int write_text_section(std::shared_ptr<DwarfGenInfo> info) {
 
 static unsigned int
 write_string_table_as_section(std::shared_ptr<DwarfGenInfo> info,
-                              strtabdata &data, const std::string &name) {
+                              const std::string &name) {
   unsigned strtabstroff = info->secstrtab.addString(name.c_str());
   Elf_Scn *scn = elf_newscn(info->elf);
   if (!scn) {
-    dwarfexport_error("dwarfgen: Unable to elf_newscn()");
+    dwarfexport_error("Unable to elf_newscn()");
   }
   Elf_Data *scndata = elf_newdata(scn);
   if (!scndata) {
-    dwarfexport_error("dwarfgen: Unable to elf_newdata()");
+    dwarfexport_error("Unable to elf_newdata()");
   }
 
-  scndata->d_buf = data.exposedata();
+  scndata->d_buf = info->secstrtab.exposedata();
   scndata->d_type = ELF_T_BYTE;
-  scndata->d_size = data.exposelen();
+  scndata->d_size = info->secstrtab.exposelen();
   scndata->d_off = 0;
   scndata->d_align = 1;
   scndata->d_version = EV_CURRENT;
 
   GElf_Shdr strshdr;
   if (!gelf_getshdr(scn, &strshdr)) {
-    dwarfexport_error("dwarfgen: Unable to elf_getshdr()");
+    dwarfexport_error("Unable to elf_getshdr()");
   }
   strshdr.sh_name = strtabstroff;
   strshdr.sh_type = SHT_STRTAB;
@@ -391,26 +525,26 @@ write_string_table_as_section(std::shared_ptr<DwarfGenInfo> info,
   strshdr.sh_entsize = 0;
 
   if (!gelf_update_shdr(scn, &strshdr)) {
-    dwarfexport_error("dwarfgen: Unable to gelf_update_shdr()");
+    dwarfexport_error("Unable to gelf_update_shdr()");
   }
 
   return elf_ndxscn(scn);
 }
 
 static unsigned int write_shstrtab_section(std::shared_ptr<DwarfGenInfo> info) {
-  return write_string_table_as_section(info, info->secstrtab, ".shstrtab");
+  return write_string_table_as_section(info, ".shstrtab");
 }
 
 static unsigned int write_symbol_section(std::shared_ptr<DwarfGenInfo> info) {
   unsigned symnameoff = info->secstrtab.addString(".symtab");
   Elf_Scn *scn = elf_newscn(info->elf);
   if (!scn) {
-    dwarfexport_error("dwarfgen: Unable to elf_newscn()");
+    dwarfexport_error("Unable to elf_newscn()");
   }
 
   Elf_Data *ed = elf_newdata(scn);
   if (!ed) {
-    dwarfexport_error("dwarfgen: Unable to elf_newdata()");
+    dwarfexport_error("Unable to elf_newdata()");
   }
 
   auto &symbols = info->symbols.syms;
@@ -443,13 +577,13 @@ static unsigned int write_symbol_section(std::shared_ptr<DwarfGenInfo> info) {
     sym.st_info = GELF_ST_INFO((STB_GLOBAL), (STT_FUNC));
 
     if (!gelf_update_sym(ed, i, &sym)) {
-      dwarfexport_error("dwarfgen: Unable to gelf_update_sym()");
+      dwarfexport_error("Unable to gelf_update_sym()");
     }
   }
 
   GElf_Shdr shdr;
   if (!gelf_getshdr(scn, &shdr)) {
-    dwarfexport_error("dwarfgen: Unable to gelf_getshdr()");
+    dwarfexport_error("Unable to gelf_getshdr()");
   }
 
   shdr.sh_name = symnameoff;
@@ -460,8 +594,7 @@ static unsigned int write_symbol_section(std::shared_ptr<DwarfGenInfo> info) {
   shdr.sh_size = 0;
 
   // Now write the string table for the symbols
-  auto strtab_index =
-      write_string_table_as_section(info, info->symbols.symstrtab, ".strtab");
+  auto strtab_index = write_string_table_as_section(info, ".strtab");
 
   shdr.sh_link = strtab_index;
   shdr.sh_info = 0;
@@ -469,10 +602,31 @@ static unsigned int write_symbol_section(std::shared_ptr<DwarfGenInfo> info) {
   shdr.sh_entsize = 0;
 
   if (!gelf_update_shdr(scn, &shdr)) {
-    dwarfexport_error("dwarfgen: Unable to gelf_update_shdr()");
+    dwarfexport_error("Unable to gelf_update_shdr()");
   }
 
   return elf_ndxscn(scn);
+}
+
+static Elf_Scn *get_last_section(Elf *elf) {
+  std::size_t count, max_offset = 0;
+  GElf_Shdr shdr;
+  Elf_Scn *last_scn;
+
+  if (elf_getshdrnum(elf, &count) == -1) {
+    dwarfexport_error("elf_getshdrnum() failed");
+  }
+  for (std::size_t i = 0; i < count; ++i) {
+    Elf_Scn *scn = elf_getscn(elf, i);
+    if (!gelf_getshdr(scn, &shdr)) {
+      dwarfexport_error("elf_getshdr() failed");
+    }
+    if (shdr.sh_offset > max_offset) {
+      last_scn = scn;
+      max_offset = shdr.sh_offset;
+    }
+  }
+  return last_scn;
 }
 
 static void InsertDataIntoElf(Dwarf_Signed d, Dwarf_P_Debug dbg, Elf *elf) {
@@ -483,15 +637,18 @@ static void InsertDataIntoElf(Dwarf_Signed d, Dwarf_P_Debug dbg, Elf *elf) {
 
   Elf_Scn *scn = elf_getscn(elf, elf_section_index);
   if (!scn) {
-    dwarfexport_error("dwarfgen: Unable to elf_getscn on disk transform");
+    dwarfexport_error("Unable to elf_getscn on disk transform");
   }
 
   ElfSectIndex si(elf_section_index);
   SectionFromDwarf &sfd = FindMySection(si);
 
+  std::cout << "Adding data for " << sfd.name_ << " with length " << length
+            << std::endl;
+
   Elf_Data *ed = elf_newdata(scn);
   if (!ed) {
-    dwarfexport_error("dwarfgen: elf_newdata died");
+    dwarfexport_error("elf_newdata died");
   }
   ed->d_buf = bytes;
   ed->d_type = ELF_T_BYTE;
@@ -500,6 +657,23 @@ static void InsertDataIntoElf(Dwarf_Signed d, Dwarf_P_Debug dbg, Elf *elf) {
   sfd.setNextOffset(ed->d_off + length);
   ed->d_align = 1;
   ed->d_version = EV_CURRENT;
+
+  // Update the section size and offset
+  Elf_Scn *last_scn = get_last_section(elf);
+  GElf_Shdr shdr, last_shdr;
+  if (!gelf_getshdr(scn, &shdr) || !gelf_getshdr(last_scn, &last_shdr)) {
+    dwarfexport_error("Unable to elf_getshdr() on ", sfd.name_);
+  }
+
+  if (!shdr.sh_offset) {
+    std::cout << "Setting sh_offset to  "
+              << last_shdr.sh_offset + last_shdr.sh_size << std::endl;
+    shdr.sh_offset = last_shdr.sh_offset + last_shdr.sh_size;
+  }
+  shdr.sh_size += length;
+  if (!gelf_update_shdr(scn, &shdr)) {
+    dwarfexport_error("Unable to gelf_update_shdr() on ", sfd.name_);
+  }
 }
 
 static void write_generated_dbg(std::shared_ptr<DwarfGenInfo> info) {
@@ -518,5 +692,3 @@ int create_a_file(const char *name) {
   int mode = S_IRUSR | S_IWUSR;
   return open(name, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, mode);
 }
-
-void close_a_file(int f) { close(f); }

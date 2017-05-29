@@ -30,7 +30,18 @@ public:
     data_[0] = 0;
     nexttouse_ = 1;
   };
+
   ~strtabdata() { delete[] data_; };
+
+  void loadExistingTable(char *data, int length) {
+    delete[] data_;
+    data_ = new char[length * 2];
+    datalen_ = length * 2;
+    nexttouse_ = length;
+
+    memcpy(data_, data, length);
+  }
+
   unsigned addString(const std::string &newstr) {
     // The 1 is for the terminating null byte.
     unsigned nsz = newstr.size() + 1;
@@ -132,9 +143,20 @@ struct DwarfGenInfo {
   Dwarf_P_Debug dbg;
 };
 
+struct Options {
+  char filepath[QMAXPATH];
+  char filename[QMAXPATH];
+  std::string dwarf_source_path = ".";
+  unsigned short use_decompiler = false;
+  bool attach_debug_info = true;
+
+  std::string c_filename() const { return filename + std::string(".c"); }
+  std::string dbg_filename() const { return filename + std::string(".dbg"); }
+};
+
 std::shared_ptr<DwarfGenInfo> generate_dwarf_object();
 void write_dwarf_file(std::shared_ptr<DwarfGenInfo> info,
-                      const std::string &filename);
+                      const Options &options);
 int translate_register_num(int ida_reg_num);
 
 #endif
