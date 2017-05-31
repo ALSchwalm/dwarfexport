@@ -5,25 +5,57 @@
 #include <hexrays.hpp>
 #include <libdwarf/libdwarf.h>
 #include <memory>
+#include <sstream>
 #include <stdexcept>
-#include <string.h> // For memset etc
+#include <string.h>
 #include <vector>
 
-[[noreturn]] inline void dwarfexport_error(const std::string &s) {
+[[noreturn]] inline void dwarfexport_error_impl(const std::string &s) {
   throw std::runtime_error(s);
 }
 
-template <typename... Args>
-inline void dwarfexport_error(const std::string &s, const std::string &arg,
-                              Args... args) {
-  dwarfexport_error(s + arg, args...);
+template <typename Arg, typename... Args>
+inline void dwarfexport_error_impl(const std::string &s, Arg arg,
+                                   Args... args) {
+  std::ostringstream os;
+  os << arg;
+  dwarfexport_error_impl(s + os.str(), args...);
 }
+
+#define dwarfexport_error(...)                                                 \
+  dwarfexport_error_impl(__FILE__, ":", __LINE__, " ", __VA_ARGS__)
 
 enum class Mode { BIT32, BIT64 };
 
-// from strtabdata.h
-// Creates a string table in a way consistent with
-// elf string tables. The zero index is a null byte always.
+/*
+  The following classes are used (heavily) modified from 'dwarfgen',
+  the original copyright notice below:
+
+  Copyright (C) 2010-2016 David Anderson.  All rights reserved.
+
+  Redistribution and use in source and binary forms, with or without
+  modification, are permitted provided that the following conditions are met:
+  * Redistributions of source code must retain the above copyright
+    notice, this list of conditions and the following disclaimer.
+  * Redistributions in binary form must reproduce the above copyright
+    notice, this list of conditions and the following disclaimer in the
+    documentation and/or other materials provided with the distribution.
+  * Neither the name of the example nor the
+    names of its contributors may be used to endorse or promote products
+    derived from this software without specific prior written permission.
+
+  THIS SOFTWARE IS PROVIDED BY David Anderson ''AS IS'' AND ANY
+  EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+  WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+  DISCLAIMED. IN NO EVENT SHALL David Anderson BE LIABLE FOR ANY
+  DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+  (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+  LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+  ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+*/
+
 class strtabdata {
 public:
   strtabdata() : data_(new char[1000]), datalen_(1000), nexttouse_(0) {
@@ -34,12 +66,13 @@ public:
   ~strtabdata() { delete[] data_; };
 
   void loadExistingTable(char *data, int length) {
+    auto new_data = new char[length * 2];
+    memcpy(new_data, data, length);
+
     delete[] data_;
-    data_ = new char[length * 2];
+    data_ = new_data;
     datalen_ = length * 2;
     nexttouse_ = length;
-
-    memcpy(data_, data, length);
   }
 
   unsigned addString(const std::string &newstr) {
@@ -59,6 +92,7 @@ public:
       data_ = newdata;
       datalen_ = newsize;
     }
+
     memcpy(data_ + nexttouse_, newstr.c_str(), nsz);
     unsigned newstrindex = nexttouse_;
     nexttouse_ += nsz;
