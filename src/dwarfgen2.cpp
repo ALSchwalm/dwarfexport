@@ -11,7 +11,6 @@
 #include <fcntl.h>
 #include <iomanip>
 #include <iostream>
-#include <list>
 #include <map>
 #include <sstream>
 #include <stdlib.h>
@@ -21,7 +20,11 @@
 #include <vector>
 
 #include "dwarfexport.h"
+
+// TODO: combine these
 strtabdata strtab;
+std::map<int, std::string> section_names;
+
 int add_section_header_string(Elf *elf, const char *name) {
 
   std::size_t sh_index;
@@ -72,11 +75,6 @@ int callback(const char *name, int size, Dwarf_Unsigned type,
   DwarfGenInfo &geninfo = *(DwarfGenInfo *)userdata;
   auto elf = geninfo.elf;
 
-  // For now, skip the rel sections
-  if (!strncmp(name, ".rel", 4)) {
-    return 0;
-  }
-
   Elf_Scn *scn = elf_newscn(elf);
   if (!scn) {
     dwarfexport_error("Unable to elf_newscn(): ", elf_errmsg(-1));
@@ -93,24 +91,21 @@ int callback(const char *name, int size, Dwarf_Unsigned type,
   shdr.sh_link = link;
   shdr.sh_info = info;
   shdr.sh_addralign = 1;
-  shdr.sh_entsize = 0;
   shdr.sh_name = add_section_header_string(elf, name);
 
-  std::cout << "Added section name with index = " << shdr.sh_name << std::endl;
+  std::cout << "Added section '" << name << "' index #" << elf_ndxscn(scn)
+            << " (sh_type=" << type << ")" << std::endl;
 
   // We set these correctly later
   shdr.sh_size = 0;
   shdr.sh_offset = 0;
+  shdr.sh_entsize = 0;
 
   if (!gelf_update_shdr(scn, &shdr)) {
     dwarfexport_error("Unable to gelf_update_shdr()", elf_errmsg(-1));
   }
 
-  if (!strcmp(name, ".rel.debug_info")) {
-    std::cout << "Added .rel.debug_info as section #" << elf_ndxscn(scn)
-              << std::endl;
-  }
-
+  section_names[elf_ndxscn(scn)] = name;
   return elf_ndxscn(scn);
 }
 
@@ -136,12 +131,11 @@ std::shared_ptr<DwarfGenInfo> generate_dwarf_object() {
                           callback, 0, errarg, (void *)info.get(), isa_name,
                           dwarf_version, 0, &info->dbg, &err);
   if (res != DW_DLV_OK) {
-    dwarfexport_error("dwarf_producer_init failed: ", elf_errmsg(-1));
+    dwarfexport_error("dwarf_producer_init failed");
   }
   res = dwarf_pro_set_default_string_form(info->dbg, DW_FORM_string, &err);
   if (res != DW_DLV_OK) {
-    dwarfexport_error("dwarf_pro_set_default_string_form failed: ",
-                      elf_errmsg(-1));
+    dwarfexport_error("dwarf_pro_set_default_string_form failed");
   }
 
   return info;
@@ -189,9 +183,84 @@ static off_t get_current_data_offset(Elf_Scn *scn) {
     if (data->d_off >= offset) {
       offset = data->d_off + data->d_size;
     }
+
+    // This shouldn't be necessary, but libelf complains the
+    // version is unknown otherwise.
     data->d_version = EV_CURRENT;
   }
   return offset;
+}
+
+static Elf_Scn *get_relocated_section(Elf *elf, Elf_Scn *scn) {
+  auto rel_index = elf_ndxscn(scn);
+  auto rel_name = section_names.at(rel_index);
+  auto sec_name = rel_name.substr(4);
+
+  for (const auto &p : section_names) {
+    if (p.second == sec_name) {
+      return elf_getscn(elf, p.first);
+    }
+  }
+  dwarfexport_error("get_relocated_section() no associated section");
+}
+
+// FIXME: there can be multiple symbol tables
+static std::size_t get_symbol_table_index(Elf *elf) {
+  std::size_t count;
+  GElf_Shdr shdr;
+
+  if (elf_getshdrnum(elf, &count) == -1) {
+    dwarfexport_error("elf_getshdrnum() failed: ", elf_errmsg(-1));
+  }
+  for (std::size_t i = 0; i < count; ++i) {
+    Elf_Scn *scn = elf_getscn(elf, i);
+    if (!gelf_getshdr(scn, &shdr)) {
+      dwarfexport_error("elf_getshdr() failed: ", elf_errmsg(-1));
+    }
+    if (shdr.sh_type == SHT_SYMTAB) {
+      return i;
+    }
+  }
+  dwarfexport_error("get_symbol_table_index() failed");
+}
+
+static void add_data_to_section_end(Elf *elf, Elf_Scn *scn, void *bytes,
+                                    std::size_t length, Elf_Type type) {
+
+  std::cout << "Adding data with length = " << length << std::endl;
+
+  auto data_offset = get_current_data_offset(scn);
+  Elf_Data *ed = elf_newdata(scn);
+  if (!ed) {
+    dwarfexport_error("elf_newdata() failed: ", elf_errmsg(-1));
+  }
+  ed->d_buf = bytes;
+  ed->d_type = type;
+  ed->d_size = length;
+  ed->d_align = 1;
+  ed->d_version = EV_CURRENT;
+  ed->d_off = data_offset;
+
+  std::cout << "Setting data offset to " << ed->d_off << std::endl;
+
+  // Update the section size and offset
+  Elf_Scn *last_scn = get_last_section(elf);
+  GElf_Shdr shdr, last_shdr;
+  if (!gelf_getshdr(scn, &shdr) || !gelf_getshdr(last_scn, &last_shdr)) {
+    dwarfexport_error("elf_getshdr() failed: ", elf_errmsg(-1));
+  }
+
+  if (!shdr.sh_offset) {
+    shdr.sh_offset = last_shdr.sh_offset + last_shdr.sh_size;
+    std::cout << "New section offset = " << shdr.sh_offset << " ("
+              << last_shdr.sh_offset << ", " << last_shdr.sh_size << ")"
+              << std::endl;
+  }
+  shdr.sh_size += length;
+  std::cout << "New section size = " << shdr.sh_size << std::endl;
+  if (!gelf_update_shdr(scn, &shdr)) {
+    dwarfexport_error("gelf_update_shdr() failed: ", elf_errmsg(-1));
+  }
 }
 
 static void add_debug_section_data(std::shared_ptr<DwarfGenInfo> info) {
@@ -212,35 +281,69 @@ static void add_debug_section_data(std::shared_ptr<DwarfGenInfo> info) {
 
     Elf_Scn *scn = elf_getscn(elf, elf_section_index);
     if (!scn) {
-      dwarfexport_error("Unable to elf_getscn on disk transform: ",
-                        elf_errmsg(-1));
+      dwarfexport_error("Unable to elf_getscn on disk transform");
     }
 
-    auto data_offset = get_current_data_offset(scn);
-    Elf_Data *ed = elf_newdata(scn);
-    if (!ed) {
-      dwarfexport_error("elf_newdata() failed: ", elf_errmsg(-1));
+    add_data_to_section_end(elf, scn, bytes, length, ELF_T_BYTE);
+  }
+}
+
+static void add_relocation_section_data(std::shared_ptr<DwarfGenInfo> info) {
+  auto dbg = info->dbg;
+  auto elf = info->elf;
+
+  Dwarf_Unsigned reloc_count;
+  int drd_buffer_version;
+  if (dwarf_get_relocation_info_count(dbg, &reloc_count, &drd_buffer_version,
+                                      NULL) != DW_DLV_OK) {
+    dwarfexport_error("dwarf_get_relocation_info_count() failed");
+  }
+
+  for (Dwarf_Signed d = 0; d < reloc_count; ++d) {
+    Dwarf_Signed elf_section_index, elf_section_link;
+    Dwarf_Unsigned reloc_entry_count;
+    Dwarf_Relocation_Data reloc_buf;
+    if (dwarf_get_relocation_info(dbg, &elf_section_index, &elf_section_link,
+                                  &reloc_entry_count, &reloc_buf,
+                                  NULL) != DW_DLV_OK) {
+      dwarfexport_error("dwarf_get_relocation_info() failed");
     }
-    ed->d_buf = bytes;
-    ed->d_type = ELF_T_BYTE;
-    ed->d_size = length;
-    ed->d_align = 1;
-    ed->d_version = EV_CURRENT;
-    ed->d_off = data_offset;
 
-    std::cout << "Setting data offset to " << ed->d_off << std::endl;
+    Elf_Scn *scn = elf_getscn(elf, elf_section_index);
+    if (!scn) {
+      dwarfexport_error("Unable to elf_getscn on disk transform");
+    }
 
-    // Update the section size and offset
-    Elf_Scn *last_scn = get_last_section(elf);
-    GElf_Shdr shdr, last_shdr;
-    if (!gelf_getshdr(scn, &shdr) || !gelf_getshdr(last_scn, &last_shdr)) {
+    std::cout << "Section #" << elf_section_index << " is a relocation section"
+              << std::endl;
+
+    char *relocations;
+    int relocation_length;
+    if (info->mode == Mode::BIT32) {
+      relocations = (char *)new Elf32_Rel[reloc_entry_count]();
+      relocation_length = reloc_entry_count * sizeof(Elf32_Rel);
+    } else {
+      relocations = (char *)new Elf64_Rel[reloc_entry_count]();
+      relocation_length = reloc_entry_count * sizeof(Elf64_Rel);
+    }
+    add_data_to_section_end(elf, scn, relocations, relocation_length,
+                            ELF_T_REL);
+
+    GElf_Shdr shdr;
+    if (!gelf_getshdr(scn, &shdr)) {
       dwarfexport_error("elf_getshdr() failed: ", elf_errmsg(-1));
     }
 
-    if (!shdr.sh_offset) {
-      shdr.sh_offset = last_shdr.sh_offset + last_shdr.sh_size;
-    }
-    shdr.sh_size += length;
+    auto relocated = get_relocated_section(elf, scn);
+    shdr.sh_info = elf_ndxscn(relocated);
+    shdr.sh_link = get_symbol_table_index(elf);
+
+    std::cout << "elf_section_link = " << elf_section_link
+              << ", shdr.sh_link = " << shdr.sh_link << std::endl;
+    shdr.sh_entsize =
+        (info->mode == Mode::BIT32) ? sizeof(Elf32_Rel) : sizeof(Elf64_Rel);
+    shdr.sh_addralign = 4;
+
     if (!gelf_update_shdr(scn, &shdr)) {
       dwarfexport_error("gelf_update_shdr() failed: ", elf_errmsg(-1));
     }
@@ -353,6 +456,7 @@ static void generate_copy_with_dbg_info(std::shared_ptr<DwarfGenInfo> info,
   }
 
   add_debug_section_data(info);
+  add_relocation_section_data(info);
 
   // Fix the section header start location
   auto last_scn = get_last_section(elf_out);
@@ -363,6 +467,23 @@ static void generate_copy_with_dbg_info(std::shared_ptr<DwarfGenInfo> info,
   ehdr_out.e_shoff = last_shdr.sh_offset + last_shdr.sh_size;
   if (gelf_update_ehdr(elf_out, &ehdr_out) == 0)
     dwarfexport_error("gelf_update_ehdr() failed: ", elf_errmsg(-1));
+
+  //--------------------------------------------
+  std::size_t count;
+  GElf_Shdr shdr;
+  if (elf_getshdrnum(elf_out, &count) == -1) {
+    dwarfexport_error("elf_getshdrnum() failed: ", elf_errmsg(-1));
+  }
+  for (std::size_t i = 0; i < count; ++i) {
+    Elf_Scn *scn = elf_getscn(elf_out, i);
+    if (!gelf_getshdr(scn, &shdr)) {
+      dwarfexport_error("elf_getshdr() failed: ", elf_errmsg(-1));
+    }
+    std::cout << "Section #" << i << ": sh_offset = " << shdr.sh_offset
+              << ", sh_size = " << shdr.sh_size
+              << ", sh_entsize = " << shdr.sh_entsize << std::endl;
+  }
+  //--------------------------------------------
 
   if (elf_update(elf_out, ELF_C_WRITE) < 0)
     dwarfexport_error("elf_update() failed: ", elf_errmsg(-1));
