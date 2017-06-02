@@ -453,7 +453,7 @@ static void add_decompiler_func_info(std::shared_ptr<DwarfGenInfo> info,
         continue;
       }
 
-      dwarf_lne_set_address(dbg, addr, symbol_index, &err);
+      dwarf_lne_set_address(dbg, addr, 0, &err);
       dwarf_add_line_entry(dbg, file_index, addr, linecount, index, true, false,
                            &err);
       break;
@@ -511,13 +511,8 @@ static Dwarf_P_Die add_function(std::shared_ptr<DwarfGenInfo> info,
   }
 
   // Add function bounds
-  auto symbol_index = info->symbols.addSymbol(func->startEA, &mangled_name[0],
-                                              func->endEA - func->startEA);
-  auto symbol_index_value = symbol_index.getSymIndex();
-  dwarf_add_AT_targ_address(dbg, die, DW_AT_low_pc, func->startEA,
-                            symbol_index_value, &err);
-  dwarf_add_AT_targ_address(dbg, die, DW_AT_high_pc, func->endEA - 1,
-                            symbol_index_value, &err);
+  dwarf_add_AT_targ_address(dbg, die, DW_AT_low_pc, func->startEA, 0, &err);
+  dwarf_add_AT_targ_address(dbg, die, DW_AT_high_pc, func->endEA - 1, 0, &err);
 
   // The start of every function should have a line entry
   dwarf_add_line_entry(dbg, file_index, func->startEA, linecount, 0, true,
@@ -525,7 +520,7 @@ static Dwarf_P_Die add_function(std::shared_ptr<DwarfGenInfo> info,
 
   if (has_decompiler && options.use_decompiler) {
     add_decompiler_func_info(info, cu, die, func, file, linecount, file_index,
-                             symbol_index_value, record);
+                             0, record);
   } else {
     add_disassembler_func_info(info, cu, die, func, record);
   }

@@ -113,67 +113,10 @@ private:
   unsigned nexttouse_;
 };
 
-//  It's very easy to confuse the symbol number in an elf file
-//  with a symbol number in dwarfgen.
-//  So this class hold an elf symbol number number
-//  and gives those a recognizable type.
-class ElfSymIndex {
-public:
-  ElfSymIndex() : elfsym_(0){};
-  ElfSymIndex(unsigned v) : elfsym_(v){};
-  unsigned getSymIndex() const { return elfsym_; }
-  void setSymIndex(unsigned v) { elfsym_ = v; }
-
-private:
-  unsigned elfsym_;
-};
-
-class ElfSymbol {
-public:
-  ElfSymbol(Dwarf_Unsigned val, const std::string &name, unsigned int size,
-            strtabdata &stab)
-      : symbolValue_(val), name_(name), size_(size) {
-    nameIndex_ = stab.addString(name);
-  };
-  Dwarf_Unsigned getSymbolValue() const { return symbolValue_; }
-  unsigned int getNameIndex() const { return nameIndex_; }
-  unsigned int getSize() const { return size_; }
-
-private:
-  Dwarf_Unsigned symbolValue_;
-  std::string name_;
-  // The offset in the string table.
-  unsigned nameIndex_;
-  unsigned size_;
-};
-
-class ElfSymbols {
-public:
-  ElfSymbols() {
-    // The initial symbol is 'no symbol'.
-    std::string emptyname("");
-    syms.push_back(ElfSymbol(0, emptyname, 0, symstrtab));
-  }
-  ElfSymIndex addSymbol(Dwarf_Unsigned val, const std::string &name,
-                        unsigned int size) {
-    syms.push_back(ElfSymbol(val, name, size, symstrtab));
-    ElfSymIndex indx(syms.size() - 1);
-    return indx;
-  };
-  ElfSymbol &getSymbol(ElfSymIndex symi) {
-    size_t i = symi.getSymIndex();
-    return syms[i];
-  }
-
-  strtabdata symstrtab;
-  std::vector<ElfSymbol> syms;
-};
-
 struct DwarfGenInfo {
   Elf *elf = nullptr;
   Mode mode = (sizeof(ea_t) == 4) ? (Mode::BIT32) : (Mode::BIT64);
   strtabdata secstrtab;
-  ElfSymbols symbols;
   Dwarf_P_Debug dbg;
 };
 
