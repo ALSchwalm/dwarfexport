@@ -123,12 +123,17 @@ struct DwarfGenInfo {
 struct Options {
   char filepath[QMAXPATH];
   char filename[QMAXPATH];
-  std::string dwarf_source_path = ".";
-  unsigned short use_decompiler = false;
-  bool attach_debug_info = true;
+  std::string dwarf_source_path;
+  unsigned short use_decompiler;
+  bool attach_debug_info;
 
   std::string c_filename() const { return filename + std::string(".c"); }
   std::string dbg_filename() const { return filename + std::string(".dbg"); }
+
+  Options(std::string _source_path, bool _use_decompiler,
+          bool _attach_debug_info)
+      : dwarf_source_path{_source_path}, use_decompiler{_use_decompiler},
+        attach_debug_info{_attach_debug_info} {}
 };
 
 std::shared_ptr<DwarfGenInfo> generate_dwarf_object();

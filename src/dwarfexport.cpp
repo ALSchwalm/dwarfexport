@@ -638,7 +638,7 @@ int idaapi init(void) {
 
 void idaapi run(int) {
   try {
-    Options options;
+    Options options(".", has_decompiler, true);
 
     get_input_file_path(options.filepath, QMAXPATH);
     get_root_filename(options.filename, QMAXPATH);

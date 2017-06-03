@@ -7,16 +7,12 @@
 #define O_BINARY 0
 #endif
 
-#include "gelf.h"
-#include <fcntl.h>
-#include <stdlib.h>
+#include <gelf.h>
 #include <string>
-#include <sys/stat.h>
-#include <unistd.h>
 
 #include "dwarfexport.h"
 
-int add_section_header_string(Elf *elf, const char *name) {
+static int add_section_header_string(Elf *elf, const char *name) {
   // The stored data has to live until the file is written, so just
   // store it statically
   static strtabdata strtab;
@@ -55,9 +51,10 @@ int add_section_header_string(Elf *elf, const char *name) {
   return ret;
 }
 
-int callback(const char *name, int size, Dwarf_Unsigned type,
-             Dwarf_Unsigned flags, Dwarf_Unsigned link, Dwarf_Unsigned info,
-             Dwarf_Unsigned *sect_name_symbol_index, void *userdata, int *) {
+static int callback(const char *name, int size, Dwarf_Unsigned type,
+                    Dwarf_Unsigned flags, Dwarf_Unsigned link,
+                    Dwarf_Unsigned info, Dwarf_Unsigned *sect_name_symbol_index,
+                    void *userdata, int *) {
   DwarfGenInfo &geninfo = *(DwarfGenInfo *)userdata;
   auto elf = geninfo.elf;
 
