@@ -17,17 +17,13 @@ plw and p64 for windows) and you will have a new option
 output.
 
 The plugin will generate two files in the output directory. One will be a `.c` file
-with the decompiled functions from the Hexrays decompiler. The other is a `.elf`
+with the decompiled functions from the Hexrays decompiler. The other is a `.dbg`
 file that contains the debug information. *Note that because the plugin performs
 decompilation on every function in the binary, it can take a while to run.*
 
-Move these to the device you want to debug on and load gdb (e.x, `gdb a.out`),
-then from gdb, run:
-
-    (gdb) symbol-file a.out.elf
-
-Afterwords you will have full debug information, like normal gdb with source
-(shown below using TUI mode):
+Move these to the device you want to debug on and load gdb (e.x, `gdb a.out`).
+You will have full debug information, like normal gdb with source (shown below
+using TUI mode):
 
 ![debugging in gdb](/resources/screenshot.png)
 
