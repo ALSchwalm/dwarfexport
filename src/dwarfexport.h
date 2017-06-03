@@ -7,8 +7,6 @@
 #include <memory>
 #include <sstream>
 #include <stdexcept>
-#include <string.h>
-#include <vector>
 
 [[noreturn]] inline void dwarfexport_error_impl(const std::string &s) {
   throw std::runtime_error(s);
@@ -27,8 +25,36 @@ inline void dwarfexport_error_impl(const std::string &s, Arg arg,
 
 enum class Mode { BIT32, BIT64 };
 
+struct DwarfGenInfo {
+  Elf *elf = nullptr;
+  Mode mode = (sizeof(ea_t) == 4) ? (Mode::BIT32) : (Mode::BIT64);
+  Dwarf_P_Debug dbg;
+  Dwarf_Error err = 0;
+};
+
+struct Options {
+  char filepath[QMAXPATH];
+  char filename[QMAXPATH];
+  std::string dwarf_source_path;
+  unsigned short use_decompiler;
+  bool attach_debug_info;
+
+  std::string c_filename() const { return filename + std::string(".c"); }
+  std::string dbg_filename() const { return filename + std::string(".dbg"); }
+
+  Options(std::string _source_path, bool _use_decompiler,
+          bool _attach_debug_info)
+      : dwarf_source_path{_source_path}, use_decompiler{_use_decompiler},
+        attach_debug_info{_attach_debug_info} {}
+};
+
+std::shared_ptr<DwarfGenInfo> generate_dwarf_object();
+void write_dwarf_file(std::shared_ptr<DwarfGenInfo> info,
+                      const Options &options);
+int translate_register_num(int ida_reg_num);
+
 /*
-  The following classes are used (heavily) modified from 'dwarfgen',
+  The following strtabdata class is used (heavily) modified from 'dwarfgen',
   the original copyright notice below:
 
   Copyright (C) 2010-2016 David Anderson.  All rights reserved.
@@ -112,33 +138,5 @@ private:
   // is in use.
   unsigned nexttouse_;
 };
-
-struct DwarfGenInfo {
-  Elf *elf = nullptr;
-  Mode mode = (sizeof(ea_t) == 4) ? (Mode::BIT32) : (Mode::BIT64);
-  strtabdata secstrtab;
-  Dwarf_P_Debug dbg;
-};
-
-struct Options {
-  char filepath[QMAXPATH];
-  char filename[QMAXPATH];
-  std::string dwarf_source_path;
-  unsigned short use_decompiler;
-  bool attach_debug_info;
-
-  std::string c_filename() const { return filename + std::string(".c"); }
-  std::string dbg_filename() const { return filename + std::string(".dbg"); }
-
-  Options(std::string _source_path, bool _use_decompiler,
-          bool _attach_debug_info)
-      : dwarf_source_path{_source_path}, use_decompiler{_use_decompiler},
-        attach_debug_info{_attach_debug_info} {}
-};
-
-std::shared_ptr<DwarfGenInfo> generate_dwarf_object();
-void write_dwarf_file(std::shared_ptr<DwarfGenInfo> info,
-                      const Options &options);
-int translate_register_num(int ida_reg_num);
 
 #endif

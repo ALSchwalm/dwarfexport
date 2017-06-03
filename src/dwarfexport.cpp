@@ -16,8 +16,16 @@
 static bool has_decompiler = false;
 hexdsp_t *hexdsp = NULL;
 
+// A mapping of IDA types to dwarf types
 using type_record_t = std::map<tinfo_t, Dwarf_P_Die>;
 
+/**
+ * Add a dwarf type definitions to the compilation unit 'cu' representing
+ * the IDA type 'type'. This is implemented for structs, const types,
+ * arrays, and pointer types using the following 'add_*_type' functions.
+ *
+ * @returns The dwarf DIE associated with the new type (or the existing one)
+ */
 static Dwarf_P_Die get_or_add_type(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
                                    const tinfo_t &type, type_record_t &record);
 
@@ -243,6 +251,12 @@ static Dwarf_P_Die get_or_add_type(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
   return die;
 }
 
+/**
+ * For a given IDA decompiler variable 'var' from a given function
+ * 'cfunc', add a dwarf variable to the provided function DIE 'func_die'.
+ *
+ * * @returns The dwarf DIE associated with the new variable
+ */
 static Dwarf_P_Die add_variable(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
                                 Dwarf_P_Die func_die, cfuncptr_t cfunc,
                                 const lvar_t &var, type_record_t &record) {
@@ -322,6 +336,10 @@ static Dwarf_P_Die add_variable(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
   return die;
 }
 
+/**
+ * Adds a DWARF variable to the provided function 'func_die' for each
+ * variable in the IDA disassembly view.
+ */
 static void add_disassembler_func_info(std::shared_ptr<DwarfGenInfo> info,
                                        Dwarf_P_Die func_die, Dwarf_P_Die cu,
                                        func_t *func, type_record_t &record) {
@@ -344,6 +362,7 @@ static void add_disassembler_func_info(std::shared_ptr<DwarfGenInfo> info,
   for (std::size_t i = 0; i < frame->memqty; ++i) {
     auto name = get_member_name2(frame->members[i].id);
 
+    // Ignore these special 'variables'
     if (name == " s" || name == " r") {
       continue;
     }
@@ -378,6 +397,20 @@ static void add_disassembler_func_info(std::shared_ptr<DwarfGenInfo> info,
   }
 }
 
+/**
+ * Adds a DWARF variable to the provided function 'func_die' for each
+ * variable in the IDA decompiler view.
+ *
+ * @param info A handle returned by a previous call to 'generate_dwarf_object'
+ * @param cu   The dwarf compilation unit containing the function
+ * @param func_die The dwarf function to add variables and line info for
+ * @param func The IDA function handle for this function
+ * @param file An output file stream used for storing the decompiled source
+ * @param linecount The current number of lines in 'file'
+ * @param file_index The dwarf file index associated with 'cu'
+ * @param symbol_index The symbol index associated with the function (unused)
+ * @param record The type record to update when adding variable types
+ */
 static void add_decompiler_func_info(std::shared_ptr<DwarfGenInfo> info,
                                      Dwarf_P_Die cu, Dwarf_P_Die func_die,
                                      func_t *func, std::ofstream &file,
@@ -528,6 +561,10 @@ static Dwarf_P_Die add_function(std::shared_ptr<DwarfGenInfo> info,
   return die;
 }
 
+/**
+ * Add dwarf info for the global variables in this file. These entries are
+ * not given a textual representation, only a location and type.
+ */
 void add_global_variables(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
                           type_record_t &record) {
   Dwarf_Error err = 0;
@@ -580,7 +617,7 @@ void add_global_variables(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
 void add_debug_info(std::shared_ptr<DwarfGenInfo> info,
                     std::ofstream &sourcefile, Options &options) {
   auto dbg = info->dbg;
-  Dwarf_Error err = 0;
+  auto err = info->err;
   Dwarf_P_Die cu;
   cu = dwarf_new_die(dbg, DW_TAG_compile_unit, nullptr, nullptr, nullptr,
                      nullptr, &err);

@@ -94,6 +94,7 @@ static int callback(const char *name, int size, Dwarf_Unsigned type,
 
 std::shared_ptr<DwarfGenInfo> generate_dwarf_object() {
   auto info = std::make_shared<DwarfGenInfo>();
+  auto err = info->err;
 
   int ptrsizeflagbit = DW_DLC_POINTER32;
   int offsetsizeflagbit = DW_DLC_OFFSET32;
@@ -108,18 +109,18 @@ std::shared_ptr<DwarfGenInfo> generate_dwarf_object() {
   const char *dwarf_version = "V2";
   int endian = (inf.mf) ? DW_DLC_TARGET_BIGENDIAN : DW_DLC_TARGET_LITTLEENDIAN;
   Dwarf_Ptr errarg = 0;
-  Dwarf_Error err = 0;
 
   int res = dwarf_producer_init(DW_DLC_WRITE | DW_DLC_SYMBOLIC_RELOCATIONS |
                                     ptrsizeflagbit | offsetsizeflagbit | endian,
                                 callback, 0, errarg, (void *)info.get(),
                                 isa_name, dwarf_version, 0, &info->dbg, &err);
   if (res != DW_DLV_OK) {
-    dwarfexport_error("dwarf_producer_init failed");
+    dwarfexport_error("dwarf_producer_init failed: ", dwarf_errmsg(err));
   }
   res = dwarf_pro_set_default_string_form(info->dbg, DW_FORM_string, &err);
   if (res != DW_DLV_OK) {
-    dwarfexport_error("dwarf_pro_set_default_string_form failed");
+    dwarfexport_error("dwarf_pro_set_default_string_form failed: ",
+                      dwarf_errmsg(err));
   }
 
   return info;
@@ -195,19 +196,30 @@ static void add_data_to_section_end(Elf *elf, Elf_Scn *scn, void *bytes,
 static void add_debug_section_data(std::shared_ptr<DwarfGenInfo> info) {
   auto dbg = info->dbg;
   auto elf = info->elf;
+  auto err = info->err;
 
   // Invokes the callback to create the needed sections
-  Dwarf_Signed sectioncount = dwarf_transform_to_disk_form(dbg, 0);
+  Dwarf_Signed sectioncount = dwarf_transform_to_disk_form(dbg, &err);
+  if (sectioncount == DW_DLV_NOCOUNT) {
+    dwarfexport_error("dwarf_transform_to_disk_form() failed: ",
+                      dwarf_errmsg(err));
+  }
 
   for (Dwarf_Signed d = 0; d < sectioncount; ++d) {
     Dwarf_Signed elf_section_index = 0;
     Dwarf_Unsigned length = 0;
     Dwarf_Ptr bytes =
-        dwarf_get_section_bytes(dbg, d, &elf_section_index, &length, 0);
+        dwarf_get_section_bytes(dbg, d, &elf_section_index, &length, &err);
+
+    if (bytes == NULL) {
+      dwarfexport_error("dwarf_get_section_bytes() failed: ",
+                        dwarf_errmsg(err));
+    }
 
     Elf_Scn *scn = elf_getscn(elf, elf_section_index);
     if (scn == NULL) {
-      dwarfexport_error("Unable to elf_getscn on disk transform");
+      dwarfexport_error("Unable to elf_getscn on disk transform: ",
+                        elf_errmsg(-1));
     }
 
     add_data_to_section_end(elf, scn, bytes, length, ELF_T_BYTE);
