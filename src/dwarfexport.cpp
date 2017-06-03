@@ -551,7 +551,7 @@ static Dwarf_P_Die add_function(std::shared_ptr<DwarfGenInfo> info,
   dwarf_add_line_entry(dbg, file_index, func->startEA, linecount, 0, true,
                        false, &err);
 
-  if (has_decompiler && options.use_decompiler) {
+  if (has_decompiler && options.use_decompiler()) {
     add_decompiler_func_info(info, cu, die, func, file, linecount, file_index,
                              0, record);
   } else {
@@ -680,11 +680,7 @@ void idaapi run(int) {
     get_input_file_path(options.filepath, QMAXPATH);
     get_root_filename(options.filename, QMAXPATH);
 
-#ifdef __NT__
-    char *filepath_end = strrchr(options.filepath, '\\');
-#else
-    char *filepath_end = strrchr(options.filepath, '/');
-#endif
+    char *filepath_end = strrchr(options.filepath, PATH_SEP);
     if (filepath_end != nullptr) {
       *(filepath_end + 1) = '\0';
     }
@@ -693,14 +689,15 @@ void idaapi run(int) {
                          "Dwarf Export\n\n"
                          "Select the location to save the exported data:\n"
                          "<Save:F:1:::>\n"
-                         "Export Options <Use Decompiler:C>>\n";
+                         "Export Options <Use Decompiler:C>\n"
+                         "<Attach Debug Info:C>>\n";
 
-    if (AskUsingForm_c(dialog, options.filepath, &options.use_decompiler) ==
+    if (AskUsingForm_c(dialog, options.filepath, &options.export_options) ==
         1) {
 
       std::ofstream sourcefile(options.c_filename());
 
-      auto info = generate_dwarf_object();
+      auto info = generate_dwarf_object(options);
       add_debug_info(info, sourcefile, options);
       write_dwarf_file(info, options);
     }

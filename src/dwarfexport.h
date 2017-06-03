@@ -36,22 +36,31 @@ struct Options {
   char filepath[QMAXPATH];
   char filename[QMAXPATH];
   std::string dwarf_source_path;
-  unsigned short use_decompiler;
-  bool attach_debug_info;
+  unsigned short export_options;
+
+  bool use_decompiler() const { return export_options & 0x0001; }
+  bool attach_debug_info() const { return export_options & 0x0002; }
 
   std::string c_filename() const { return filename + std::string(".c"); }
   std::string dbg_filename() const { return filename + std::string(".dbg"); }
 
   Options(std::string _source_path, bool _use_decompiler,
           bool _attach_debug_info)
-      : dwarf_source_path{_source_path}, use_decompiler{_use_decompiler},
-        attach_debug_info{_attach_debug_info} {}
+      : dwarf_source_path{_source_path}, export_options{
+                                             _use_decompiler |
+                                             (_attach_debug_info << 1)} {}
 };
 
-std::shared_ptr<DwarfGenInfo> generate_dwarf_object();
+std::shared_ptr<DwarfGenInfo> generate_dwarf_object(const Options &options);
 void write_dwarf_file(std::shared_ptr<DwarfGenInfo> info,
                       const Options &options);
 int translate_register_num(int ida_reg_num);
+
+#ifdef __NT__
+#define PATH_SEP '\\'
+#else
+#define PATH_SEP '/'
+#endif
 
 /*
   The following strtabdata class is used (heavily) modified from 'dwarfgen',

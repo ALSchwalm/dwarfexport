@@ -8,6 +8,7 @@
 #endif
 
 #include <gelf.h>
+#include <iostream> // TODO: remove this
 #include <string>
 
 #include "dwarfexport.h"
@@ -51,10 +52,11 @@ static int add_section_header_string(Elf *elf, const char *name) {
   return ret;
 }
 
-static int callback(const char *name, int size, Dwarf_Unsigned type,
-                    Dwarf_Unsigned flags, Dwarf_Unsigned link,
-                    Dwarf_Unsigned info, Dwarf_Unsigned *sect_name_symbol_index,
-                    void *userdata, int *) {
+static int attached_info_callback(const char *name, int size,
+                                  Dwarf_Unsigned type, Dwarf_Unsigned flags,
+                                  Dwarf_Unsigned link, Dwarf_Unsigned info,
+                                  Dwarf_Unsigned *sect_name_symbol_index,
+                                  void *userdata, int *) {
   DwarfGenInfo &geninfo = *(DwarfGenInfo *)userdata;
   auto elf = geninfo.elf;
 
@@ -92,7 +94,17 @@ static int callback(const char *name, int size, Dwarf_Unsigned type,
   return elf_ndxscn(scn);
 }
 
-std::shared_ptr<DwarfGenInfo> generate_dwarf_object() {
+static std::vector<std::string> detached_sections;
+static int detached_info_callback(const char *name, int size,
+                                  Dwarf_Unsigned type, Dwarf_Unsigned flags,
+                                  Dwarf_Unsigned link, Dwarf_Unsigned info,
+                                  Dwarf_Unsigned *sect_name_symbol_index,
+                                  void *userdata, int *) {
+  detached_sections.push_back(name);
+  return detached_sections.size() - 1;
+}
+
+std::shared_ptr<DwarfGenInfo> generate_dwarf_object(const Options &options) {
   auto info = std::make_shared<DwarfGenInfo>();
   auto err = info->err;
 
@@ -110,6 +122,12 @@ std::shared_ptr<DwarfGenInfo> generate_dwarf_object() {
   int endian = (inf.mf) ? DW_DLC_TARGET_BIGENDIAN : DW_DLC_TARGET_LITTLEENDIAN;
   Dwarf_Ptr errarg = 0;
 
+  decltype(&attached_info_callback) callback;
+  if (options.attach_debug_info()) {
+    callback = &attached_info_callback;
+  } else {
+    callback = &detached_info_callback;
+  }
   int res = dwarf_producer_init(DW_DLC_WRITE | DW_DLC_SYMBOLIC_RELOCATIONS |
                                     ptrsizeflagbit | offsetsizeflagbit | endian,
                                 callback, 0, errarg, (void *)info.get(),
@@ -350,12 +368,62 @@ static void generate_copy_with_dbg_info(std::shared_ptr<DwarfGenInfo> info,
   close(fd_in);
 }
 
+void generate_detached_dbg_info(std::shared_ptr<DwarfGenInfo> info,
+                                const std::string &path) {
+  auto dbg = info->dbg;
+  auto err = info->err;
+
+  // Invokes the callback to create the needed sections
+  Dwarf_Signed sectioncount = dwarf_transform_to_disk_form(dbg, &err);
+  if (sectioncount == DW_DLV_NOCOUNT) {
+    dwarfexport_error("dwarf_transform_to_disk_form() failed: ",
+                      dwarf_errmsg(err));
+  }
+
+  int fd = 0;
+  int prev_section_index = -1;
+
+  for (Dwarf_Signed d = 0; d < sectioncount; ++d) {
+    Dwarf_Signed section_index = 0;
+    Dwarf_Unsigned length = 0;
+    Dwarf_Ptr bytes =
+        dwarf_get_section_bytes(dbg, d, &section_index, &length, &err);
+
+    if (bytes == NULL) {
+      dwarfexport_error("dwarf_get_section_bytes() failed: ",
+                        dwarf_errmsg(err));
+    }
+
+    auto section_name = detached_sections.at(section_index).substr(1);
+    std::string fullpath = path + PATH_SEP + section_name;
+
+    // We're in a different section, so open a new fd
+    if (prev_section_index != section_index) {
+      if (fd != 0) {
+        close(fd);
+      }
+
+      // strip the leading '.' on the section name
+      fd = open(fullpath.c_str(), O_WRONLY | O_CREAT, 0777);
+
+      if (fd < 0) {
+        dwarfexport_error("open failed: ", path);
+      }
+    }
+
+    // TODO: this is not necessarily an error
+    if (write(fd, bytes, length) != length) {
+      dwarfexport_error("write() failed");
+    }
+  }
+}
+
 void write_dwarf_file(std::shared_ptr<DwarfGenInfo> info,
                       const Options &options) {
-  if (options.attach_debug_info) {
+  if (options.attach_debug_info()) {
     generate_copy_with_dbg_info(info, options.filename, options.dbg_filename());
   } else {
-    // generate_file_with_dbg_info(info, options.dbg_filename());
+    generate_detached_dbg_info(info, options.filepath);
   }
   dwarf_producer_finish(info->dbg, 0);
 }
