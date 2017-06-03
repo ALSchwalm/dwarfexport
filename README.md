@@ -29,6 +29,19 @@ using TUI mode):
 
 *Note: You may need to run `list` to get the source file loaded.*
 
+Options
+-------
+
+The following options are available from the plugin GUI
+
+`Use Decompiler`: On architectures where the decompiler is available, opt out of
+using it.
+
+`Attach Debug Info`: When checked, a `.dbg` file is created with the debug information.
+However, this will only work if the target is an ELF file. When the target is not an ELF
+file, uncheck this option to create a group of binary files (one for reach ELF section that
+would have been created).
+
 Building On Linux
 -----------------
 
