@@ -9,27 +9,22 @@
 
 #include "gelf.h"
 #include <fcntl.h>
-#include <iomanip>
-#include <iostream>
-#include <map>
-#include <sstream>
 #include <stdlib.h>
 #include <string>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <vector>
 
 #include "dwarfexport.h"
 
-strtabdata strtab;
 int add_section_header_string(Elf *elf, const char *name) {
-  std::size_t sh_index;
+  // The stored data has to live until the file is written, so just
+  // store it statically
+  static strtabdata strtab;
 
+  std::size_t sh_index;
   if (elf_getshstrndx(elf, &sh_index) == -1) {
     dwarfexport_error("elf_getshstrndx() failed: ", elf_errmsg(-1));
   }
-
-  std::cout << "Section header table is at " << sh_index << std::endl;
 
   auto strscn = elf_getscn(elf, sh_index);
   if (strscn == NULL) {
@@ -45,9 +40,6 @@ int add_section_header_string(Elf *elf, const char *name) {
   if ((data = elf_getdata(strscn, NULL)) == NULL) {
     dwarfexport_error("elf_getdata() failed: ", elf_errmsg(-1));
   }
-  std::cout << "Got a data: " << (void *)data << std::endl;
-  std::cout << "Existing section header table has length " << data->d_size
-            << std::endl;
 
   strtab.loadExistingTable((char *)data->d_buf, data->d_size);
   auto ret = strtab.addString(name);
@@ -55,8 +47,6 @@ int add_section_header_string(Elf *elf, const char *name) {
   data->d_buf = strtab.exposedata();
   data->d_size = strtab.exposelen();
   shdr.sh_size = data->d_size;
-
-  std::cout << "Setting buffer len to " << data->d_size << std::endl;
 
   if (!gelf_update_shdr(strscn, &shdr)) {
     dwarfexport_error("Unable to gelf_update_shdr()", elf_errmsg(-1));
@@ -93,9 +83,6 @@ int callback(const char *name, int size, Dwarf_Unsigned type,
   shdr.sh_addralign = 1;
   shdr.sh_name = add_section_header_string(elf, name);
 
-  std::cout << "Added section '" << name << "' index #" << elf_ndxscn(scn)
-            << " (sh_type=" << type << ")" << std::endl;
-
   // We set these correctly later
   shdr.sh_size = 0;
   shdr.sh_offset = 0;
@@ -117,18 +104,19 @@ std::shared_ptr<DwarfGenInfo> generate_dwarf_object() {
     ptrsizeflagbit = DW_DLC_POINTER64;
   }
 
+  // We don't use the dwarf relocations, so it probably doesn't matter what
+  // we put here
   const char *isa_name = (info->mode == Mode::BIT32) ? "x86" : "x86_64";
-  const char *dwarf_version = "V2";
 
+  const char *dwarf_version = "V2";
   int endian = (inf.mf) ? DW_DLC_TARGET_BIGENDIAN : DW_DLC_TARGET_LITTLEENDIAN;
   Dwarf_Ptr errarg = 0;
   Dwarf_Error err = 0;
 
-  int res =
-      dwarf_producer_init(DW_DLC_WRITE | ptrsizeflagbit | offsetsizeflagbit |
-                              DW_DLC_SYMBOLIC_RELOCATIONS | endian,
-                          callback, 0, errarg, (void *)info.get(), isa_name,
-                          dwarf_version, 0, &info->dbg, &err);
+  int res = dwarf_producer_init(DW_DLC_WRITE | DW_DLC_SYMBOLIC_RELOCATIONS |
+                                    ptrsizeflagbit | offsetsizeflagbit | endian,
+                                callback, 0, errarg, (void *)info.get(),
+                                isa_name, dwarf_version, 0, &info->dbg, &err);
   if (res != DW_DLV_OK) {
     dwarfexport_error("dwarf_producer_init failed");
   }
@@ -138,20 +126,6 @@ std::shared_ptr<DwarfGenInfo> generate_dwarf_object() {
   }
 
   return info;
-}
-
-static int get_elf_machine_type(Mode m) {
-  switch (ph.id) {
-  case PLFM_386:
-    return (m == Mode::BIT32) ? EM_386 : EM_X86_64;
-  case PLFM_PPC:
-    return (m == Mode::BIT32) ? EM_PPC : EM_PPC64;
-  case PLFM_ARM:
-    return (m == Mode::BIT32) ? EM_ARM : EM_AARCH64;
-  default:
-    msg("Unknown processor type, using EM_386");
-    return EM_386;
-  }
 }
 
 static Elf_Scn *get_last_section(Elf *elf) {
@@ -193,8 +167,6 @@ static off_t get_current_data_offset(Elf_Scn *scn) {
 static void add_data_to_section_end(Elf *elf, Elf_Scn *scn, void *bytes,
                                     std::size_t length, Elf_Type type) {
 
-  std::cout << "Adding data with length = " << length << std::endl;
-
   auto data_offset = get_current_data_offset(scn);
   Elf_Data *ed = elf_newdata(scn);
   if (!ed) {
@@ -207,8 +179,6 @@ static void add_data_to_section_end(Elf *elf, Elf_Scn *scn, void *bytes,
   ed->d_version = EV_CURRENT;
   ed->d_off = data_offset;
 
-  std::cout << "Setting data offset to " << ed->d_off << std::endl;
-
   // Update the section size and offset
   Elf_Scn *last_scn = get_last_section(elf);
   GElf_Shdr shdr, last_shdr;
@@ -218,12 +188,8 @@ static void add_data_to_section_end(Elf *elf, Elf_Scn *scn, void *bytes,
 
   if (!shdr.sh_offset) {
     shdr.sh_offset = last_shdr.sh_offset + last_shdr.sh_size;
-    std::cout << "New section offset = " << shdr.sh_offset << " ("
-              << last_shdr.sh_offset << ", " << last_shdr.sh_size << ")"
-              << std::endl;
   }
   shdr.sh_size += length;
-  std::cout << "New section size = " << shdr.sh_size << std::endl;
   if (!gelf_update_shdr(scn, &shdr)) {
     dwarfexport_error("gelf_update_shdr() failed: ", elf_errmsg(-1));
   }
@@ -242,11 +208,8 @@ static void add_debug_section_data(std::shared_ptr<DwarfGenInfo> info) {
     Dwarf_Ptr bytes =
         dwarf_get_section_bytes(dbg, d, &elf_section_index, &length, 0);
 
-    std::cout << "Add data for dwarf #" << d << " section #"
-              << elf_section_index << std::endl;
-
     Elf_Scn *scn = elf_getscn(elf, elf_section_index);
-    if (!scn) {
+    if (scn == NULL) {
       dwarfexport_error("Unable to elf_getscn on disk transform");
     }
 
@@ -332,7 +295,6 @@ static void generate_copy_with_dbg_info(std::shared_ptr<DwarfGenInfo> info,
   Elf_Data *data_in, *data_out;
   GElf_Shdr shdr_in, shdr_out;
   for (scn_index = 1; scn_index < ehdr_in.e_shnum; scn_index++) {
-    std::cout << "Creating section with index = " << scn_index << std::endl;
     if ((scn_in = elf_getscn(elf_in, scn_index)) == NULL)
       dwarfexport_error("getshdr() failed: ", elf_errmsg(-1));
     if ((scn_out = elf_newscn(elf_out)) == NULL)
@@ -343,7 +305,6 @@ static void generate_copy_with_dbg_info(std::shared_ptr<DwarfGenInfo> info,
 
     data_in = NULL;
     while ((data_in = elf_getdata(scn_in, data_in)) != NULL) {
-      std::cout << "Adding data" << std::endl;
       if ((data_out = elf_newdata(scn_out)) == NULL)
         dwarfexport_error("elf_newdata() failed: ", elf_errmsg(-1));
 
