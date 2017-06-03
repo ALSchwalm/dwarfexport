@@ -418,7 +418,7 @@ static void add_decompiler_func_info(std::shared_ptr<DwarfGenInfo> info,
                                      Dwarf_Unsigned symbol_index,
                                      type_record_t &record) {
   auto dbg = info->dbg;
-  Dwarf_Error err = 0;
+  auto err = info->err;
 
   hexrays_failure_t hf;
   cfuncptr_t cfunc = decompile(func, &hf);
@@ -449,14 +449,13 @@ static void add_decompiler_func_info(std::shared_ptr<DwarfGenInfo> info,
 
   // Add line info
   const auto &sv = cfunc->get_pseudocode();
-  for (std::size_t i = 0; i < sv.size(); ++i) {
+  for (std::size_t i = 0; i < sv.size(); ++i, ++linecount) {
     char buf[MAXSTR];
     const char *line = sv[i].line.c_str();
     tag_remove(line, buf, MAXSTR);
 
     auto stripped_buf = std::string(buf);
     file << stripped_buf + "\n";
-    linecount += 1;
 
     ctree_item_t item;
     std::size_t index = stripped_buf.find_first_not_of(' ');
@@ -504,8 +503,8 @@ static Dwarf_P_Die add_function(std::shared_ptr<DwarfGenInfo> info,
                                 Dwarf_Unsigned file_index,
                                 type_record_t &record) {
   auto dbg = info->dbg;
+  auto err = info->err;
   Dwarf_P_Die die;
-  Dwarf_Error err = 0;
   die = dwarf_new_die(dbg, DW_TAG_subprogram, cu, nullptr, nullptr, nullptr,
                       &err);
   if (die == nullptr) {
@@ -648,7 +647,7 @@ void add_debug_info(std::shared_ptr<DwarfGenInfo> info,
     f = get_next_func(seg->startEA);
   }
 
-  int linecount = 0;
+  int linecount = 1;
   type_record_t record;
   for (; f != nullptr; f = get_next_func(f->startEA)) {
     if (f->startEA > seg->endEA) {

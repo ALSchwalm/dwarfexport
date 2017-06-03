@@ -8,7 +8,6 @@
 #endif
 
 #include <gelf.h>
-#include <iostream> // TODO: remove this
 #include <string>
 
 #include "dwarfexport.h"
