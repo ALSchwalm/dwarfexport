@@ -55,6 +55,10 @@ std::shared_ptr<DwarfGenInfo> generate_dwarf_object(const Options &options);
 void write_dwarf_file(std::shared_ptr<DwarfGenInfo> info,
                       const Options &options);
 int translate_register_num(int ida_reg_num);
+Dwarf_P_Expr decompiler_stack_lvar_location(Dwarf_P_Debug dbg, cfuncptr_t cfunc,
+                                            const lvar_t &var);
+Dwarf_P_Expr disassembler_stack_lvar_location(Dwarf_P_Debug dbg, func_t *func,
+                                              member_t *member);
 
 #ifdef __NT__
 #define PATH_SEP '\\'

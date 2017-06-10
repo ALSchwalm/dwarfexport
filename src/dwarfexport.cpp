@@ -282,32 +282,7 @@ static Dwarf_P_Die add_variable(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
   }
 
   if (var.is_stk_var()) {
-    // Add frame location
-    // TODO: what to do for non-bp based frames and register variables
-    Dwarf_P_Expr loc_expr = dwarf_new_expr(dbg, &err);
-    auto func = get_func(cfunc->entry_ea);
-
-    // FIXME: Not sure what's going on here. stkoff returns strange values
-    //       but this math seems to work out.
-    int base_offset;
-    if (sizeof(ea_t) == 4) {
-      // IDA bug? This is off by 8 on 32 bit builds
-      auto correct_stack_offset = var.location.stkoff() - 8;
-      base_offset = -(func->frsize - correct_stack_offset);
-
-      // Fixup base offset for dwarf (not sure why this is 8)
-      base_offset -= 8;
-    } else {
-      base_offset = -(func->frsize - var.location.stkoff());
-
-      // Fixup base offset for dwarf (not sure why this is 16)
-      base_offset -= 16;
-    }
-
-    if (dwarf_add_expr_gen(loc_expr, DW_OP_fbreg, base_offset, 0, &err) ==
-        DW_DLV_NOCOUNT) {
-      dwarfexport_error("dwarf_add_expr_gen failed: ", dwarf_errmsg(err));
-    }
+    auto loc_expr = decompiler_stack_lvar_location(dbg, cfunc, var);
     if (dwarf_add_AT_location_expr(dbg, die, DW_AT_location, loc_expr, &err) ==
         nullptr) {
       dwarfexport_error("dwarf_add_AT_location_expr failed: ",
@@ -351,30 +326,12 @@ static void add_disassembler_func_info(std::shared_ptr<DwarfGenInfo> info,
     return;
   }
 
-  auto size = get_struc_size(frame->id);
-  auto saved_regs = get_member_by_name(frame, " s");
-  if (saved_regs == nullptr) {
-    return;
-  }
-  auto saved_regs_off = saved_regs->soff;
-  auto offset = size - (size - saved_regs_off);
-
   for (std::size_t i = 0; i < frame->memqty; ++i) {
     auto name = get_member_name2(frame->members[i].id);
 
     // Ignore these special 'variables'
     if (name == " s" || name == " r") {
       continue;
-    }
-
-    auto stack_location = frame->members[i].soff - offset;
-
-    if (sizeof(ea_t) == 4) {
-      // Fixup base offset for dwarf (not sure why this is 8)
-      stack_location -= 8;
-    } else {
-      // Fixup base offset for dwarf (not sure why this is 16)
-      stack_location -= 16;
     }
 
     Dwarf_P_Die die;
@@ -384,11 +341,9 @@ static void add_disassembler_func_info(std::shared_ptr<DwarfGenInfo> info,
       dwarfexport_error("dwarf_add_AT_name failed: ", dwarf_errmsg(err));
     }
 
-    Dwarf_P_Expr loc_expr = dwarf_new_expr(dbg, &err);
-    if (dwarf_add_expr_gen(loc_expr, DW_OP_fbreg, stack_location, 0, &err) ==
-        DW_DLV_NOCOUNT) {
-      dwarfexport_error("dwarf_add_expr_gen failed: ", dwarf_errmsg(err));
-    }
+    auto loc_expr =
+        disassembler_stack_lvar_location(dbg, func, &frame->members[i]);
+
     if (dwarf_add_AT_location_expr(dbg, die, DW_AT_location, loc_expr, &err) ==
         nullptr) {
       dwarfexport_error("dwarf_add_AT_location_expr failed: ",
