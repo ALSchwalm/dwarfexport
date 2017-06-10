@@ -408,6 +408,7 @@ void generate_detached_dbg_info(std::shared_ptr<DwarfGenInfo> info,
       if (fd < 0) {
         dwarfexport_error("open failed: ", path);
       }
+      prev_section_index = section_index;
     }
 
     // TODO: this is not necessarily an error
