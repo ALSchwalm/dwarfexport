@@ -253,6 +253,8 @@ int translate_register_num(int ida_reg_num) {
   }
 }
 
+static bool disassembler_lvar_reg_and_offset(func_t *func, member_t *member,
+                                             int *reg, int *offset);
 static bool decompiler_lvar_reg_and_offset(cfuncptr_t cfunc, const lvar_t &var,
                                            int *reg, int *offset) {
   // FIXME: Due to current IDA limitations, stkoff may not always return a
@@ -263,10 +265,18 @@ static bool decompiler_lvar_reg_and_offset(cfuncptr_t cfunc, const lvar_t &var,
       *reg = DW_OP_breg7; // rsp
       *offset = var.location.stkoff();
     } else {
-      *reg = DW_OP_breg5; // ebp
+      // On 32bit intel, just use the disassembler logic
       auto func = get_func(cfunc->entry_ea);
-      auto correct_stack_offset = var.location.stkoff() - 8;
-      *offset = -(func->frsize - correct_stack_offset);
+      auto frame = get_frame(func);
+      if (frame == nullptr) {
+        return false;
+      }
+
+      auto member = get_member_by_name(frame, &var.name[0]);
+      if (member == nullptr) {
+        return false;
+      }
+      return disassembler_lvar_reg_and_offset(func, member, reg, offset);
     }
     return true;
   case PLFM_ARM:
