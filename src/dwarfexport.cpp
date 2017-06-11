@@ -515,6 +515,19 @@ static Dwarf_P_Die add_function(std::shared_ptr<DwarfGenInfo> info,
   return die;
 }
 
+void add_structures(Dwarf_P_Debug dbg, Dwarf_P_Die cu, type_record_t &record) {
+  for (auto idx = get_first_struc_idx(); idx != BADADDR;
+       idx = get_next_struc_idx(idx)) {
+    auto tid = get_struc_by_idx(idx);
+    auto struc = get_struc(tid);
+    tinfo_t type;
+
+    if (guess_tinfo2(tid, &type) == GUESS_FUNC_OK) {
+      get_or_add_type(dbg, cu, type, record);
+    }
+  }
+}
+
 /**
  * Add dwarf info for the global variables in this file. These entries are
  * not given a textual representation, only a location and type.
@@ -622,6 +635,9 @@ void add_debug_info(std::shared_ptr<DwarfGenInfo> info,
 
   // Add the global variables (but don't add a file location)
   add_global_variables(dbg, cu, record);
+
+  // Add any other structures
+  add_structures(dbg, cu, record);
 }
 
 int idaapi init(void) {
