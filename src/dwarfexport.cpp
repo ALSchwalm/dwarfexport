@@ -344,6 +344,10 @@ static void add_disassembler_func_info(std::shared_ptr<DwarfGenInfo> info,
     auto loc_expr =
         disassembler_stack_lvar_location(dbg, func, &frame->members[i]);
 
+    if (loc_expr == nullptr) {
+      continue;
+    }
+
     if (dwarf_add_AT_location_expr(dbg, die, DW_AT_location, loc_expr, &err) ==
         nullptr) {
       dwarfexport_error("dwarf_add_AT_location_expr failed: ",
@@ -421,6 +425,7 @@ static void add_decompiler_func_info(std::shared_ptr<DwarfGenInfo> info,
     // For each column in the line, try to find a cexpr_t that has an
     // address inside the function, then emit a dwarf source line info
     // for that.
+    ea_t lowest_line_addr = 0;
     for (; index < stripped_buf.size(); ++index) {
       if (!cfunc->get_line_item(line, index, true, nullptr, &item, nullptr)) {
         continue;
@@ -440,10 +445,14 @@ static void add_decompiler_func_info(std::shared_ptr<DwarfGenInfo> info,
         continue;
       }
 
-      dwarf_lne_set_address(dbg, addr, 0, &err);
-      dwarf_add_line_entry(dbg, file_index, addr, linecount, index, true, false,
-                           &err);
-      break;
+      if (!lowest_line_addr || addr < lowest_line_addr) {
+        lowest_line_addr = addr;
+      }
+    }
+    if (lowest_line_addr) {
+      dwarf_lne_set_address(dbg, lowest_line_addr, 0, &err);
+      dwarf_add_line_entry(dbg, file_index, lowest_line_addr, linecount, index,
+                           true, false, &err);
     }
   }
 

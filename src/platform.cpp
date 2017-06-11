@@ -354,7 +354,7 @@ Dwarf_P_Expr disassembler_stack_lvar_location(Dwarf_P_Debug dbg, func_t *func,
   int stack_reg, stack_offset;
   if (!disassembler_lvar_reg_and_offset(func, member, &stack_reg,
                                         &stack_offset)) {
-    dwarfexport_error("lvar_reg_and_offset failed");
+    return nullptr;
   }
 
   if (dwarf_add_expr_gen(loc_expr, stack_reg, stack_offset, 0, &err) ==
