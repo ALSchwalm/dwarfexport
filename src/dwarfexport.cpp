@@ -368,7 +368,7 @@ static void add_disassembler_func_info(std::shared_ptr<DwarfGenInfo> info,
  */
 static void add_decompiler_func_info(std::shared_ptr<DwarfGenInfo> info,
                                      Dwarf_P_Die cu, Dwarf_P_Die func_die,
-                                     func_t *func, std::ofstream &file,
+                                     func_t *func, std::ostream &file,
                                      int &linecount, Dwarf_Unsigned file_index,
                                      Dwarf_Unsigned symbol_index,
                                      type_record_t &record) {
@@ -454,7 +454,7 @@ static void add_decompiler_func_info(std::shared_ptr<DwarfGenInfo> info,
 
 static Dwarf_P_Die add_function(std::shared_ptr<DwarfGenInfo> info,
                                 Options &options, Dwarf_P_Die cu, func_t *func,
-                                std::ofstream &file, int &linecount,
+                                std::ostream &file, int &linecount,
                                 Dwarf_Unsigned file_index,
                                 type_record_t &record) {
   auto dbg = info->dbg;
@@ -465,10 +465,6 @@ static Dwarf_P_Die add_function(std::shared_ptr<DwarfGenInfo> info,
   if (die == nullptr) {
     dwarfexport_error("dwarf_new_die failed: ", dwarf_errmsg(err));
   }
-
-  // Add location declaration
-  dwarf_add_AT_unsigned_const(dbg, die, DW_AT_decl_file, file_index, &err);
-  dwarf_add_AT_unsigned_const(dbg, die, DW_AT_decl_line, linecount, &err);
 
   // Add frame base
   // TODO: what to do for non-bp based frames
@@ -501,11 +497,15 @@ static Dwarf_P_Die add_function(std::shared_ptr<DwarfGenInfo> info,
   dwarf_add_AT_targ_address(dbg, die, DW_AT_low_pc, func->startEA, 0, &err);
   dwarf_add_AT_targ_address(dbg, die, DW_AT_high_pc, func->endEA - 1, 0, &err);
 
-  // The start of every function should have a line entry
-  dwarf_add_line_entry(dbg, file_index, func->startEA, linecount, 0, true,
-                       false, &err);
-
   if (has_decompiler && options.use_decompiler()) {
+    // Add location declaration
+    dwarf_add_AT_unsigned_const(dbg, die, DW_AT_decl_file, file_index, &err);
+    dwarf_add_AT_unsigned_const(dbg, die, DW_AT_decl_line, linecount, &err);
+
+    // The start of every function should have a line entry
+    dwarf_add_line_entry(dbg, file_index, func->startEA, linecount, 0, true,
+                         false, &err);
+
     add_decompiler_func_info(info, cu, die, func, file, linecount, file_index,
                              0, record);
   } else {
@@ -569,7 +569,7 @@ void add_global_variables(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
 }
 
 void add_debug_info(std::shared_ptr<DwarfGenInfo> info,
-                    std::ofstream &sourcefile, Options &options) {
+                    std::ostream &sourcefile, Options &options) {
   auto dbg = info->dbg;
   auto err = info->err;
   Dwarf_P_Die cu;
@@ -579,16 +579,19 @@ void add_debug_info(std::shared_ptr<DwarfGenInfo> info,
     dwarfexport_error("dwarf_new_die failed: ", dwarf_errmsg(err));
   }
 
-  if (dwarf_add_AT_name(cu, &options.c_filename()[0], &err) == nullptr) {
-    dwarfexport_error("dwarf_add_AT_name failed: ", dwarf_errmsg(err));
+  Dwarf_Unsigned file_index = 0;
+  if (options.use_decompiler()) {
+    if (dwarf_add_AT_name(cu, &options.c_filename()[0], &err) == nullptr) {
+      dwarfexport_error("dwarf_add_AT_name failed: ", dwarf_errmsg(err));
+    }
+
+    auto dir_index =
+        dwarf_add_directory_decl(dbg, &options.dwarf_source_path[0], &err);
+    file_index = dwarf_add_file_decl(dbg, &options.c_filename()[0], dir_index,
+                                     0, 0, &err);
+
+    dwarf_add_AT_comp_dir(cu, &options.dwarf_source_path[0], &err);
   }
-
-  auto dir_index =
-      dwarf_add_directory_decl(dbg, &options.dwarf_source_path[0], &err);
-  auto file_index =
-      dwarf_add_file_decl(dbg, &options.c_filename()[0], dir_index, 0, 0, &err);
-
-  dwarf_add_AT_comp_dir(cu, &options.dwarf_source_path[0], &err);
 
   segment_t *seg = get_segm_by_name(".text");
   if (seg == nullptr) {
@@ -649,7 +652,10 @@ void idaapi run(int) {
     if (AskUsingForm_c(dialog, options.filepath, &options.export_options) ==
         1) {
 
-      std::ofstream sourcefile(options.c_filename());
+      std::ofstream sourcefile;
+      if (options.use_decompiler()) {
+        sourcefile = std::ofstream(options.c_filename());
+      }
 
       auto info = generate_dwarf_object(options);
       add_debug_info(info, sourcefile, options);
