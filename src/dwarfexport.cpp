@@ -348,6 +348,19 @@ static void add_disassembler_func_info(std::shared_ptr<DwarfGenInfo> info,
       continue;
     }
 
+    auto member_struct = get_sptr(&frame->members[i]);
+    if (member_struct) {
+      tinfo_t type;
+      if (guess_tinfo2(member_struct->id, &type) == GUESS_FUNC_OK) {
+        auto var_type_die = get_or_add_type(dbg, cu, type, record);
+        if (dwarf_add_AT_reference(dbg, die, DW_AT_type, var_type_die, &err) ==
+            nullptr) {
+          dwarfexport_error("dwarf_add_AT_reference failed: ",
+                            dwarf_errmsg(err));
+        }
+      }
+    }
+
     if (dwarf_add_AT_location_expr(dbg, die, DW_AT_location, loc_expr, &err) ==
         nullptr) {
       dwarfexport_error("dwarf_add_AT_location_expr failed: ",
@@ -524,11 +537,15 @@ static Dwarf_P_Die add_function(std::shared_ptr<DwarfGenInfo> info,
   return die;
 }
 
+/**
+ * Add all structures to the debug output. This is useful for allowing casts
+ * to types in the debugger that may not have actually been used at the time
+ * the debug info was being exported.
+ */
 void add_structures(Dwarf_P_Debug dbg, Dwarf_P_Die cu, type_record_t &record) {
   for (auto idx = get_first_struc_idx(); idx != BADADDR;
        idx = get_next_struc_idx(idx)) {
     auto tid = get_struc_by_idx(idx);
-    auto struc = get_struc(tid);
     tinfo_t type;
 
     if (guess_tinfo2(tid, &type) == GUESS_FUNC_OK) {
@@ -558,6 +575,8 @@ void add_global_variables(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
         continue;
       }
 
+      // The docs say 'guess_tinfo2' takes a tid_t, but it is used elsewhere
+      // with an ea_t as well (and seems to work).
       tinfo_t type;
       if (guess_tinfo2(addr, &type) != GUESS_FUNC_OK) {
         continue;
