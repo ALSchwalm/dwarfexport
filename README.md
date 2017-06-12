@@ -56,6 +56,31 @@ Building On Windows
 No instructions are currently provided. I'm using a series of hacks that I will
 clean up and document at some point.
 
+Adding Support for Other Architectures
+--------------------------------------
+
+There are three functions that need to be modified to add support for a new
+architectures. They are all located in `platform.cpp`:
+
+`translate_register_num`: Translates from IDA register numbers to DWARF numbers.
+The IDA register numbering can be found by running `idaapi.ph_get_regnames()`.
+The index of a register in the returned list is its 'IDA register number'. A variety
+of resources exist to find the DWARF mapping for a given architecture. For example,
+[wine](https://source.winehq.org/source/dlls/dbghelp/cpu_x86_64.c) has the numbers
+for some architectures (see `x86_64_map_dwarf_register`).
+
+`disassembler_lvar_reg_and_offset`: This function should set the `reg` and `offset`
+parameters to a dwarf register and the offset from that register that should be
+used to read from a stack variable 'member'. So `reg` will typically be a register
+containing a pointer to the top or bottom of the stack (so `DW_OP_breg5` is register 5
+which is EBP on x86), and the offset will then be the offset from the bottom or top
+of the stack.
+
+`decompiler_lvar_reg_and_offset`: On architectures supporting the decompiler, this
+function should be modified to perform the same work as the above function, but with
+a `lvar_t` from the Hexrays decompiler. Note that it may be acceptable to reuse the
+disassembler logic.
+
 License
 -------
 
