@@ -35,7 +35,7 @@ struct DwarfGenInfo {
 struct Options {
   enum {
     USE_DECOMPILER = 1 << 0,
-    ONLY_EXPORT_NAMED_FUNCS = 1 << 1,
+    ONLY_DECOMPILE_NAMED_FUNCS = 1 << 1,
     ATTACH_DEBUG_INFO = 1 << 2,
   };
 
@@ -46,8 +46,8 @@ struct Options {
 
   bool use_decompiler() const { return export_options & USE_DECOMPILER; }
   bool attach_debug_info() const { return export_options & ATTACH_DEBUG_INFO; }
-  bool only_export_named_funcs() const {
-    return export_options & ONLY_EXPORT_NAMED_FUNCS;
+  bool only_decompile_named_funcs() const {
+    return export_options & ONLY_DECOMPILE_NAMED_FUNCS;
   }
 
   std::string c_filename() const { return filename + std::string(".c"); }

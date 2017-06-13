@@ -521,7 +521,11 @@ static Dwarf_P_Die add_function(std::shared_ptr<DwarfGenInfo> info,
   dwarf_add_AT_targ_address(dbg, die, DW_AT_low_pc, func->startEA, 0, &err);
   dwarf_add_AT_targ_address(dbg, die, DW_AT_high_pc, func->endEA - 1, 0, &err);
 
-  if (has_decompiler && options.use_decompiler()) {
+  auto is_named = has_name(getFlags(func->startEA));
+  if (has_decompiler && options.use_decompiler() &&
+      (!options.only_decompile_named_funcs() ||
+       (options.only_decompile_named_funcs() && is_named))) {
+
     // Add location declaration
     dwarf_add_AT_unsigned_const(dbg, die, DW_AT_decl_file, file_index, &err);
     dwarf_add_AT_unsigned_const(dbg, die, DW_AT_decl_line, linecount, &err);
@@ -655,9 +659,6 @@ void add_debug_info(std::shared_ptr<DwarfGenInfo> info,
       break;
     }
 
-    if (options.only_export_named_funcs() && !has_name(getFlags(f->startEA))) {
-      continue;
-    }
     add_function(info, options, cu, f, sourcefile, linecount, file_index,
                  record);
   }
@@ -681,7 +682,10 @@ int idaapi init(void) {
 
 void idaapi run(int) {
   try {
-    Options options(".", Options::USE_DECOMPILER | Options::ATTACH_DEBUG_INFO);
+    auto default_options =
+        (has_decompiler) ? Options::ATTACH_DEBUG_INFO | Options::USE_DECOMPILER
+                         : Options::ATTACH_DEBUG_INFO;
+    Options options(".", default_options);
 
     get_input_file_path(options.filepath, QMAXPATH);
     get_root_filename(options.filename, QMAXPATH);
@@ -696,7 +700,7 @@ void idaapi run(int) {
                          "Select the location to save the exported data:\n"
                          "<Save:F:1:::>\n"
                          "Export Options\n <Use Decompiler:C>\n"
-                         "<Only Export Named Functions:C>\n"
+                         "<Only Decompile Named Functions:C>\n"
                          "<Attach Debug Info:C>>\n";
 
     if (AskUsingForm_c(dialog, options.filepath, &options.export_options) ==
