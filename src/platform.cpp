@@ -298,7 +298,7 @@ Dwarf_P_Expr decompiler_stack_lvar_location(Dwarf_P_Debug dbg, cfuncptr_t cfunc,
 
   int stack_reg, stack_offset;
   if (!decompiler_lvar_reg_and_offset(cfunc, var, &stack_reg, &stack_offset)) {
-    dwarfexport_error("decompiler_lvar_reg_and_offset failed");
+    return nullptr;
   }
 
   if (dwarf_add_expr_gen(loc_expr, stack_reg, stack_offset, 0, &err) ==

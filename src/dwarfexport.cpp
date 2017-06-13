@@ -283,10 +283,12 @@ static Dwarf_P_Die add_variable(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
 
   if (var.is_stk_var()) {
     auto loc_expr = decompiler_stack_lvar_location(dbg, cfunc, var);
-    if (dwarf_add_AT_location_expr(dbg, die, DW_AT_location, loc_expr, &err) ==
-        nullptr) {
-      dwarfexport_error("dwarf_add_AT_location_expr failed: ",
-                        dwarf_errmsg(err));
+    if (loc_expr) {
+      if (dwarf_add_AT_location_expr(dbg, die, DW_AT_location, loc_expr,
+                                     &err) == nullptr) {
+        dwarfexport_error("dwarf_add_AT_location_expr failed: ",
+                          dwarf_errmsg(err));
+      }
     }
   } else if (!var.is_arg_var() && var.location.is_reg1()) {
     // Try to get the DWARF register number from the IDA register number.
