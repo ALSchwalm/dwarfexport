@@ -257,11 +257,11 @@ static void generate_copy_with_dbg_info(std::shared_ptr<DwarfGenInfo> info,
   if (elf_version(EV_CURRENT) == EV_NONE)
     dwarfexport_error("ELF library initialization failed: ", elf_errmsg(-1));
 
-  if ((fd_in = open(src.c_str(), O_RDONLY, 0)) < 0)
+  if ((fd_in = open(src.c_str(), O_RDONLY | O_BINARY, 0)) < 0)
     dwarfexport_error("open failed: ", src);
 
   if ((elf_in = elf_begin(fd_in, ELF_C_READ, NULL)) == NULL)
-    dwarfexport_error("elf_begin() failed: ", elf_errmsg(-1));
+    dwarfexport_error("elf_begin() (read) failed: ", elf_errmsg(-1));
 
   if (gelf_getehdr(elf_in, &ehdr_in) != &ehdr_in)
     dwarfexport_error("gelf_getehdr() failed: ", elf_errmsg(-1));
@@ -272,11 +272,11 @@ static void generate_copy_with_dbg_info(std::shared_ptr<DwarfGenInfo> info,
   }
 
   /* open output elf */
-  if ((fd_out = open(dst.c_str(), O_WRONLY | O_CREAT, 0777)) < 0)
+  if ((fd_out = open(dst.c_str(), O_WRONLY | O_CREAT | O_BINARY, 0777)) < 0)
     dwarfexport_error("open failed: ", dst);
 
   if ((elf_out = elf_begin(fd_out, ELF_C_WRITE, NULL)) == NULL)
-    dwarfexport_error("elf_begin() failed: ", elf_errmsg(-1));
+    dwarfexport_error("elf_begin() (write) failed: ", elf_errmsg(-1));
 
   /* create new elf header */
   if (gelf_newehdr(elf_out, ehdr_in.e_ident[EI_CLASS]) == 0)
