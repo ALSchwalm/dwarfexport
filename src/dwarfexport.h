@@ -33,22 +33,28 @@ struct DwarfGenInfo {
 };
 
 struct Options {
+  enum {
+    USE_DECOMPILER = 1 << 0,
+    ONLY_EXPORT_NAMED_FUNCS = 1 << 1,
+    ATTACH_DEBUG_INFO = 1 << 2,
+  };
+
   char filepath[QMAXPATH];
   char filename[QMAXPATH];
   std::string dwarf_source_path;
   unsigned short export_options;
 
-  bool use_decompiler() const { return export_options & 0x0001; }
-  bool attach_debug_info() const { return export_options & 0x0002; }
+  bool use_decompiler() const { return export_options & USE_DECOMPILER; }
+  bool attach_debug_info() const { return export_options & ATTACH_DEBUG_INFO; }
+  bool only_export_named_funcs() const {
+    return export_options & ONLY_EXPORT_NAMED_FUNCS;
+  }
 
   std::string c_filename() const { return filename + std::string(".c"); }
   std::string dbg_filename() const { return filename + std::string(".dbg"); }
 
-  Options(std::string _source_path, bool _use_decompiler,
-          bool _attach_debug_info)
-      : dwarf_source_path{_source_path}, export_options{
-                                             _use_decompiler |
-                                             (_attach_debug_info << 1)} {}
+  Options(std::string _source_path, unsigned short options)
+      : dwarf_source_path{_source_path}, export_options{options} {}
 };
 
 std::shared_ptr<DwarfGenInfo> generate_dwarf_object(const Options &options);

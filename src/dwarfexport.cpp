@@ -655,6 +655,9 @@ void add_debug_info(std::shared_ptr<DwarfGenInfo> info,
       break;
     }
 
+    if (options.only_export_named_funcs() && !has_name(getFlags(f->startEA))) {
+      continue;
+    }
     add_function(info, options, cu, f, sourcefile, linecount, file_index,
                  record);
   }
@@ -678,7 +681,7 @@ int idaapi init(void) {
 
 void idaapi run(int) {
   try {
-    Options options(".", has_decompiler, true);
+    Options options(".", Options::USE_DECOMPILER | Options::ATTACH_DEBUG_INFO);
 
     get_input_file_path(options.filepath, QMAXPATH);
     get_root_filename(options.filename, QMAXPATH);
@@ -692,7 +695,8 @@ void idaapi run(int) {
                          "Dwarf Export\n\n"
                          "Select the location to save the exported data:\n"
                          "<Save:F:1:::>\n"
-                         "Export Options <Use Decompiler:C>\n"
+                         "Export Options\n <Use Decompiler:C>\n"
+                         "<Only Export Named Functions:C>\n"
                          "<Attach Debug Info:C>>\n";
 
     if (AskUsingForm_c(dialog, options.filepath, &options.export_options) ==
