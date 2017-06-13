@@ -401,18 +401,6 @@ static void add_decompiler_func_info(std::shared_ptr<DwarfGenInfo> info,
     return;
   }
 
-  // Add ret type
-  tinfo_t func_type_info;
-  if (cfunc->get_func_type(&func_type_info)) {
-    auto rettype = func_type_info.get_rettype();
-    auto rettype_die = get_or_add_type(dbg, cu, rettype, record);
-
-    if (dwarf_add_AT_reference(dbg, func_die, DW_AT_type, rettype_die, &err) ==
-        nullptr) {
-      dwarfexport_error("dwarf_add_AT_reference failed: ", dwarf_errmsg(err));
-    }
-  }
-
   // Add lvars (from decompiler)
   auto &lvars = *cfunc->get_lvars();
   for (std::size_t i = 0; i < lvars.size(); ++i) {
@@ -517,6 +505,17 @@ static Dwarf_P_Die add_function(std::shared_ptr<DwarfGenInfo> info,
     dwarfexport_error("dwarf_add_AT_string failed: ", dwarf_errmsg(err));
   }
 
+  // Add ret type
+  tinfo_t func_type_info;
+  if (get_tinfo2(func->startEA, &func_type_info)) {
+    auto rettype = func_type_info.get_rettype();
+    auto rettype_die = get_or_add_type(dbg, cu, rettype, record);
+    if (dwarf_add_AT_reference(dbg, die, DW_AT_type, rettype_die, &err) ==
+        nullptr) {
+      dwarfexport_error("dwarf_add_AT_reference failed: ", dwarf_errmsg(err));
+    }
+  }
+
   // Add function bounds
   dwarf_add_AT_targ_address(dbg, die, DW_AT_low_pc, func->startEA, 0, &err);
   dwarf_add_AT_targ_address(dbg, die, DW_AT_high_pc, func->endEA - 1, 0, &err);
@@ -581,8 +580,6 @@ void add_global_variables(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
         continue;
       }
 
-      // The docs say 'guess_tinfo2' takes a tid_t, but it is used elsewhere
-      // with an ea_t as well (and seems to work).
       tinfo_t type;
       if (guess_tinfo2(addr, &type) != GUESS_FUNC_OK) {
         continue;
