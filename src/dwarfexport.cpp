@@ -410,6 +410,9 @@ static void add_decompiler_func_info(std::shared_ptr<DwarfGenInfo> info,
 
   // Add line info
   const auto &sv = cfunc->get_pseudocode();
+  const auto &bounds = cfunc->get_boundaries();
+  const auto &eamap = cfunc->get_eamap();
+  ea_t previous_line_addr = 0;
   for (std::size_t i = 0; i < sv.size(); ++i, ++linecount) {
     char buf[MAXSTR];
     const char *line = sv[i].line.c_str();
@@ -427,7 +430,7 @@ static void add_decompiler_func_info(std::shared_ptr<DwarfGenInfo> info,
     // For each column in the line, try to find a cexpr_t that has an
     // address inside the function, then emit a dwarf source line info
     // for that.
-    ea_t lowest_line_addr = 0;
+    ea_t lowest_line_addr = 0, highest_line_addr = 0;
     for (; index < stripped_buf.size(); ++index) {
       if (!cfunc->get_line_item(line, index, true, nullptr, &item, nullptr)) {
         continue;
@@ -447,14 +450,41 @@ static void add_decompiler_func_info(std::shared_ptr<DwarfGenInfo> info,
         continue;
       }
 
-      if (!lowest_line_addr || addr < lowest_line_addr) {
-        lowest_line_addr = addr;
+      // Get the bounds of the expression. This fixes issues where the arguments
+      // to a multi-line function call were not correctly handled.
+      ea_t expr_lowest_addr = addr, expr_highest_addr = addr;
+      if (eamap.count(addr)) {
+        const auto &expr_areaset = bounds.at(eamap.at(addr).at(0));
+
+        // TODO: the area set may not be sorted this way
+        expr_lowest_addr = expr_areaset.getarea(0).startEA;
+        expr_highest_addr = expr_areaset.lastarea().endEA - 1;
       }
+
+      // In some situations, there are multiple lines that have the same
+      // 'lowest' point. To avoid mapping multiple lines to the same address, we
+      // try to ensure that the address associated with a given line is the
+      // lowest one that is still higher than the highest address of the
+      // previous line.
+      if (!lowest_line_addr || expr_lowest_addr < lowest_line_addr) {
+        if (!previous_line_addr || expr_lowest_addr > previous_line_addr) {
+          lowest_line_addr = expr_lowest_addr;
+        }
+      }
+      if (!highest_line_addr || expr_highest_addr > highest_line_addr) {
+        highest_line_addr = expr_highest_addr;
+      }
+    }
+
+    if (!lowest_line_addr && highest_line_addr &&
+        highest_line_addr > previous_line_addr) {
+      lowest_line_addr = previous_line_addr + 1;
     }
     if (lowest_line_addr) {
       dwarf_lne_set_address(dbg, lowest_line_addr, 0, &err);
       dwarf_add_line_entry(dbg, file_index, lowest_line_addr, linecount, index,
                            true, false, &err);
+      previous_line_addr = highest_line_addr;
     }
   }
 
