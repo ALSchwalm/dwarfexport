@@ -265,15 +265,14 @@ static Dwarf_P_Die add_variable(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
 
   die = dwarf_new_die(dbg, DW_TAG_variable, func_die, NULL, NULL, NULL, &err);
 
-  // Add var type
-  if (var.typed()) {
-    auto var_type = var.type();
-    auto var_type_die = get_or_add_type(dbg, cu, var_type, record);
-
-    if (dwarf_add_AT_reference(dbg, die, DW_AT_type, var_type_die, &err) ==
-        nullptr) {
-      dwarfexport_error("dwarf_add_AT_reference failed: ", dwarf_errmsg(err));
-    }
+  // Add var type. We could check for 'typed' here, but this is sometimes
+  // returns strange values (bug?), and I think lvars in the decompiled view
+  // must be types, so skip the check.
+  auto var_type = var.type();
+  auto var_type_die = get_or_add_type(dbg, cu, var_type, record);
+  if (dwarf_add_AT_reference(dbg, die, DW_AT_type, var_type_die, &err) ==
+      nullptr) {
+    dwarfexport_error("dwarf_add_AT_reference failed: ", dwarf_errmsg(err));
   }
 
   auto name = var.name;
