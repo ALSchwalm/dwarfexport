@@ -56,6 +56,35 @@ Building On Windows
 No instructions are currently provided. I'm using a series of hacks that I will
 clean up and document at some point.
 
+Building on macOS
+-----------------
+
+To build dwarfexport on macOS, you must build and install 32-bit versions of
+libelf and libdwarf.
+
+```
+# Download, build, and install libelf (it's a libdwarf prereq)
+$ mkdir -p thirdparty
+$ pushd thirdparty
+$ wget http://www.mr511.de/software/libelf-0.8.13.tar.gz
+$ tar zxf libelf-0.8.13.tar.gz
+$ pushd libelf-0.8.13
+$ CFLAGS=-m32 CXXFLAGS=-m32 ./configure
+$ make && make install
+$ popd
+
+# Clone, build, and install libdwarf
+$ git clone git@github.com:tomhughes/libdwarf.git
+$ pushd libdwarf/
+$ CFLAGS=-m32 CXXFLAGS=-m32 ./configure
+$ make && make install
+$ popd
+$ popd
+
+# Build dwarfexport for macos
+$ IDA_PATH="/Applications/IDA\ Pro\ 6.95/idaq.app/Contents/MacOS/" IDASDK_PATH="<PATH TO IDASDK>" make -f Makefile.osx
+```
+
 Adding Support for Other Architectures
 --------------------------------------
 
