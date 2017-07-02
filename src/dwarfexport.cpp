@@ -713,31 +713,49 @@ void add_debug_info(std::shared_ptr<DwarfGenInfo> info,
     dwarf_add_AT_comp_dir(cu, &options.dwarf_source_path[0], &err);
   }
 
-  segment_t *seg = get_segm_by_name(".text");
-  if (seg == nullptr) {
-    dwarfexport_error("Unable to located text section. Aborting.");
-  }
-
-  func_t *f = get_func(seg->startEA);
-  if (f == nullptr) {
-    // In some cases, the start of the section may not actually be a function,
-    // so get the first available function.
-    f = get_next_func(seg->startEA);
-  }
-
   int linecount = 1;
   type_record_t record;
-  for (; f != nullptr; f = get_next_func(f->startEA)) {
-    if (f->startEA > seg->endEA) {
-      break;
+  auto seg_qty = get_segm_qty();
+  for (std::size_t segn = 0; segn < seg_qty; ++segn) {
+    auto seg = getnseg(segn);
+    if (seg == nullptr) {
+      dwarfexport_error("Unable to getnseg() segment number ", segn);
     }
 
-    add_function(info, options, cu, f, sourcefile, linecount, file_index,
-                 record);
-  }
+    // Only consider EXEC segments
+    // TODO: Skip plt/got?
+    if (!(seg->perm & SEGPERM_EXEC)) {
+      dwarfexport_log("Segment #", segn, " is not executable. Skipping.");
+      continue;
+    }
 
-  if (dwarf_add_die_to_debug(dbg, cu, &err) != DW_DLV_OK) {
-    dwarfexport_error("dwarf_add_die_to_debug failed: ", dwarf_errmsg(err));
+    char segname[MAXSTR];
+    get_true_segm_name(seg, segname, sizeof(segname));
+    dwarfexport_log("Adding functions from: ", segname);
+
+    func_t *f = get_func(seg->startEA);
+    if (f == nullptr) {
+      // In some cases, the start of the section may not actually be a function,
+      // so get the first available function.
+      f = get_next_func(seg->startEA);
+
+      if (f == nullptr) {
+        dwarfexport_error("get_next_func() failed");
+      }
+    }
+
+    for (; f != nullptr; f = get_next_func(f->startEA)) {
+      if (f->startEA > seg->endEA) {
+        break;
+      }
+
+      add_function(info, options, cu, f, sourcefile, linecount, file_index,
+                   record);
+    }
+
+    if (dwarf_add_die_to_debug(dbg, cu, &err) != DW_DLV_OK) {
+      dwarfexport_error("dwarf_add_die_to_debug failed: ", dwarf_errmsg(err));
+    }
   }
 
   // Add the global variables (but don't add a file location)
