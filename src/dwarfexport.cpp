@@ -14,6 +14,7 @@
 #include "dwarfexport.h"
 
 static bool has_decompiler = false;
+bool enable_logging = false;
 hexdsp_t *hexdsp = NULL;
 
 // A mapping of IDA types to dwarf types
@@ -35,6 +36,8 @@ static Dwarf_P_Die add_struct_type(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
     dwarfexport_error("add_struct_type: type is not struct");
   }
 
+  dwarfexport_log("Adding structure type");
+
   Dwarf_P_Die die;
   Dwarf_Error err = 0;
 
@@ -47,6 +50,8 @@ static Dwarf_P_Die add_struct_type(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
     dwarfexport_error("dwarf_add_AT_name failed: ", dwarf_errmsg(err));
   }
 
+  dwarfexport_log("  Name = ", name);
+
   // Add type size
   auto size = type.get_size();
   if (size != BADSIZE &&
@@ -56,10 +61,14 @@ static Dwarf_P_Die add_struct_type(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
                       dwarf_errmsg(err));
   }
 
+  dwarfexport_log("  Size = ", size);
+
   auto member_count = type.get_udt_nmembers();
   if (member_count == -1) {
     dwarfexport_error("add_struct_type: get_udt_nmembers error");
   }
+
+  dwarfexport_log("  Member Count = ", member_count);
 
   for (int i = 0; i < member_count; ++i) {
     udt_member_t member;
@@ -81,6 +90,8 @@ static Dwarf_P_Die add_struct_type(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
     if (dwarf_add_AT_name(member_die, &member_name[0], &err) == NULL) {
       dwarfexport_error("dwarf_add_AT_name failed: ", dwarf_errmsg(err));
     }
+
+    dwarfexport_log("  Adding Member: ", &member_name[0]);
 
     // Add member location in struct
     Dwarf_P_Expr loc_expr = dwarf_new_expr(dbg, &err);
@@ -104,6 +115,8 @@ static Dwarf_P_Die add_array_type(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
     dwarfexport_error("add_array_type: type is not array");
   }
 
+  dwarfexport_log("Adding array type");
+
   Dwarf_P_Die die;
   Dwarf_Error err = 0;
 
@@ -122,6 +135,9 @@ static Dwarf_P_Die add_array_type(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
   auto elems = type.get_array_nelems();
   if (elems != -1) {
     elems -= 1;
+
+    dwarfexport_log("  Number of elements = ", elems);
+
     auto subrange =
         dwarf_new_die(dbg, DW_TAG_subrange_type, die, NULL, NULL, NULL, &err);
     if (dwarf_add_AT_unsigned_const(dbg, subrange, DW_AT_upper_bound, elems,
@@ -157,6 +173,8 @@ static Dwarf_P_Die add_const_type(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
     dwarfexport_error("add_const_type: type is not const");
   }
 
+  dwarfexport_log("Adding const type");
+
   Dwarf_P_Die die;
   Dwarf_Error err = 0;
 
@@ -179,6 +197,8 @@ static Dwarf_P_Die add_ptr_type(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
   if (!type.is_ptr()) {
     dwarfexport_error("add_ptr_type: type is not a pointer");
   }
+
+  dwarfexport_log("Adding pointer type");
 
   Dwarf_P_Die die;
   Dwarf_Error err = 0;
@@ -207,6 +227,8 @@ static Dwarf_P_Die get_or_add_type(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
   if (record.find(type) != record.end()) {
     return record[type];
   }
+
+  dwarfexport_log("Adding new type");
 
   Dwarf_P_Die die;
   Dwarf_Error err = 0;
@@ -238,6 +260,8 @@ static Dwarf_P_Die get_or_add_type(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
     dwarfexport_error("dwarf_add_AT_name failed: ", dwarf_errmsg(err));
   }
 
+  dwarfexport_log("  Name = ", name);
+
   // Add type size
   std::size_t size = type.get_size();
   if (size != BADSIZE &&
@@ -246,6 +270,8 @@ static Dwarf_P_Die get_or_add_type(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
     dwarfexport_error("dwarf_add_AT_unsigned_const failed: ",
                       dwarf_errmsg(err));
   }
+
+  dwarfexport_log("  Size = ", size);
 
   record[type] = die;
   return die;
@@ -701,8 +727,12 @@ void add_debug_info(std::shared_ptr<DwarfGenInfo> info,
 }
 
 int idaapi init(void) {
-  if (init_hexrays_plugin())
+  if (init_hexrays_plugin()) {
+    msg("dwarfexport: Using decompiler\n");
     has_decompiler = true;
+  } else {
+    msg("dwarfexport: No decompiler found\n");
+  }
   return PLUGIN_OK;
 }
 
@@ -727,18 +757,38 @@ void idaapi run(int) {
                          "<Save:F:1:::>\n"
                          "Export Options\n <Use Decompiler:C>\n"
                          "<Only Decompile Named Functions:C>\n"
-                         "<Attach Debug Info:C>>\n";
+                         "<Attach Debug Info:C>\n"
+                         "<Verbose:C>>\n";
 
     if (AskUsingForm_c(dialog, options.filepath, &options.export_options) ==
         1) {
 
+      if (options.verbose()) {
+        enable_logging = true;
+        dwarfexport_log("Verbose mode enabled");
+      }
+
+      if (!options.attach_debug_info()) {
+        dwarfexport_log("Generating detached debug info");
+      }
+      if (options.only_decompile_named_funcs()) {
+        dwarfexport_log("Only decompiling named functions");
+      }
+
       std::ofstream sourcefile;
       if (options.use_decompiler()) {
+        dwarfexport_log("Using decompiler with exported source filename: ",
+                        options.c_filename());
         sourcefile = std::ofstream(options.c_filename());
       }
 
+      dwarfexport_log("Setting up DWARF object");
       auto info = generate_dwarf_object(options);
+
+      dwarfexport_log("Adding DWARF debug information");
       add_debug_info(info, sourcefile, options);
+
+      dwarfexport_log("Writing out DWARF file to disk");
       write_dwarf_file(info, options);
     }
   } catch (const std::exception &e) {

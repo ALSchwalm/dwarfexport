@@ -3,6 +3,7 @@
 
 #include <dwarf.h>
 #include <hexrays.hpp>
+#include <iostream>
 #include <libdwarf/libdwarf.h>
 #include <memory>
 #include <sstream>
@@ -23,6 +24,28 @@ inline void dwarfexport_error_impl(const std::string &s, Arg arg,
 #define dwarfexport_error(...)                                                 \
   dwarfexport_error_impl(__FILE__, ":", __LINE__, " ", __VA_ARGS__)
 
+extern bool enable_logging;
+
+inline void dwarfexport_log_impl(const std::string &s) {
+  if (enable_logging) {
+    auto out = s + "\n";
+    msg(out.c_str());
+    std::cout << out;
+  }
+}
+
+template <typename Arg, typename... Args>
+inline void dwarfexport_log_impl(const std::string &s, Arg arg, Args... args) {
+  if (enable_logging) {
+    std::ostringstream os;
+    os << arg;
+    dwarfexport_log_impl(s + os.str(), args...);
+  }
+}
+
+#define dwarfexport_log(...)                                                   \
+  dwarfexport_log_impl(__FILE__, ":", __LINE__, " ", __VA_ARGS__)
+
 enum class Mode { BIT32, BIT64 };
 
 struct DwarfGenInfo {
@@ -37,6 +60,7 @@ struct Options {
     USE_DECOMPILER = 1 << 0,
     ONLY_DECOMPILE_NAMED_FUNCS = 1 << 1,
     ATTACH_DEBUG_INFO = 1 << 2,
+    VERBOSE = 1 << 3,
   };
 
   char filepath[QMAXPATH];
@@ -49,6 +73,7 @@ struct Options {
   bool only_decompile_named_funcs() const {
     return export_options & ONLY_DECOMPILE_NAMED_FUNCS;
   }
+  bool verbose() const { return export_options & VERBOSE; }
 
   std::string c_filename() const { return filename + std::string(".c"); }
   std::string dbg_filename() const { return filename + std::string(".dbg"); }
