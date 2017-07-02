@@ -2,6 +2,7 @@
 #define DWARFEXPORT_HPP
 
 #include <dwarf.h>
+#include <fstream>
 #include <hexrays.hpp>
 #include <iostream>
 #include <libdwarf/libdwarf.h>
@@ -24,27 +25,22 @@ inline void dwarfexport_error_impl(const std::string &s, Arg arg,
 #define dwarfexport_error(...)                                                 \
   dwarfexport_error_impl(__FILE__, ":", __LINE__, " ", __VA_ARGS__)
 
-extern bool enable_logging;
+extern std::ofstream logger;
 
 inline void dwarfexport_log_impl(const std::string &s) {
-  if (enable_logging) {
-    auto out = s + "\n";
-    msg(out.c_str());
-    std::cout << out;
-  }
+  logger << s << std::endl;
 }
 
 template <typename Arg, typename... Args>
 inline void dwarfexport_log_impl(const std::string &s, Arg arg, Args... args) {
-  if (enable_logging) {
+  if (logger.is_open()) {
     std::ostringstream os;
     os << arg;
     dwarfexport_log_impl(s + os.str(), args...);
   }
 }
 
-#define dwarfexport_log(...)                                                   \
-  dwarfexport_log_impl(__FILE__, ":", __LINE__, " ", __VA_ARGS__)
+#define dwarfexport_log(...) dwarfexport_log_impl(__VA_ARGS__)
 
 enum class Mode { BIT32, BIT64 };
 

@@ -298,8 +298,12 @@ Dwarf_P_Expr decompiler_stack_lvar_location(Dwarf_P_Debug dbg, cfuncptr_t cfunc,
 
   int stack_reg, stack_offset;
   if (!decompiler_lvar_reg_and_offset(cfunc, var, &stack_reg, &stack_offset)) {
+    dwarfexport_log("Unable to calculate location on stack");
     return nullptr;
   }
+
+  dwarfexport_log("Variable located at ", stack_offset,
+                  " bytes from register #", stack_reg);
 
   if (dwarf_add_expr_gen(loc_expr, stack_reg, stack_offset, 0, &err) ==
       DW_DLV_NOCOUNT) {
@@ -364,8 +368,12 @@ Dwarf_P_Expr disassembler_stack_lvar_location(Dwarf_P_Debug dbg, func_t *func,
   int stack_reg, stack_offset;
   if (!disassembler_lvar_reg_and_offset(func, member, &stack_reg,
                                         &stack_offset)) {
+    dwarfexport_log("Unable to calculate location on stack");
     return nullptr;
   }
+
+  dwarfexport_log("Variable located at ", stack_offset,
+                  " bytes from register #", stack_reg);
 
   if (dwarf_add_expr_gen(loc_expr, stack_reg, stack_offset, 0, &err) ==
       DW_DLV_NOCOUNT) {

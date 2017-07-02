@@ -14,7 +14,7 @@
 #include "dwarfexport.h"
 
 static bool has_decompiler = false;
-bool enable_logging = false;
+std::ofstream logger;
 hexdsp_t *hexdsp = NULL;
 
 // A mapping of IDA types to dwarf types
@@ -306,6 +306,8 @@ static Dwarf_P_Die add_variable(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
     dwarfexport_error("dwarf_add_AT_name failed: ", dwarf_errmsg(err));
   }
 
+  dwarfexport_log("Adding local variable: ", &name[0]);
+
   if (var.is_stk_var()) {
     auto loc_expr = decompiler_stack_lvar_location(dbg, cfunc, var);
     if (loc_expr) {
@@ -322,6 +324,9 @@ static Dwarf_P_Die add_variable(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
     auto reg_num = translate_register_num(var.location.reg1());
 
     if (reg_num != -1) {
+      dwarfexport_log("Translated IDA register #", var.location.reg1(), " to #",
+                      reg_num);
+
       Dwarf_P_Expr loc_expr = dwarf_new_expr(dbg, &err);
       if (dwarf_add_expr_gen(loc_expr, DW_OP_regx, reg_num, 0, &err) ==
           DW_DLV_NOCOUNT) {
@@ -332,6 +337,8 @@ static Dwarf_P_Die add_variable(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
         dwarfexport_error("dwarf_add_AT_location_expr failed: ",
                           dwarf_errmsg(err));
       }
+    } else {
+      dwarfexport_log("Unable to translate register #", reg_num);
     }
   }
 
@@ -360,6 +367,8 @@ static void add_disassembler_func_info(std::shared_ptr<DwarfGenInfo> info,
     if (name == " s" || name == " r") {
       continue;
     }
+
+    dwarfexport_log("Adding local variable: ", &name[0]);
 
     Dwarf_P_Die die;
     die = dwarf_new_die(dbg, DW_TAG_variable, func_die, NULL, NULL, NULL, &err);
@@ -423,6 +432,7 @@ static void add_decompiler_func_info(std::shared_ptr<DwarfGenInfo> info,
   cfuncptr_t cfunc = decompile(func, &hf);
 
   if (cfunc == nullptr) {
+    dwarfexport_log("Failed to decompile function at ", func->startEA);
     return;
   }
 
@@ -446,6 +456,8 @@ static void add_decompiler_func_info(std::shared_ptr<DwarfGenInfo> info,
 
     auto stripped_buf = std::string(buf);
     file << stripped_buf + "\n";
+
+    dwarfexport_log("Processing line: ", stripped_buf);
 
     ctree_item_t item;
     std::size_t index = stripped_buf.find_first_not_of(' ');
@@ -507,6 +519,8 @@ static void add_decompiler_func_info(std::shared_ptr<DwarfGenInfo> info,
       lowest_line_addr = previous_line_addr + 1;
     }
     if (lowest_line_addr) {
+      dwarfexport_log("Mapping line #", linecount, " to address ",
+                      lowest_line_addr);
       dwarf_lne_set_address(dbg, lowest_line_addr, 0, &err);
       dwarf_add_line_entry(dbg, file_index, lowest_line_addr, linecount, index,
                            true, false, &err);
@@ -548,7 +562,6 @@ static Dwarf_P_Die add_function(std::shared_ptr<DwarfGenInfo> info,
   // Add function name
   auto name = get_long_name(func->startEA);
   char *c_name = &*name.begin();
-  printf("Processing %s\n", c_name);
 
   if (dwarf_add_AT_name(die, c_name, &err) == nullptr) {
     dwarfexport_error("dwarf_add_AT_name failed: ", dwarf_errmsg(err));
@@ -559,6 +572,8 @@ static Dwarf_P_Die add_function(std::shared_ptr<DwarfGenInfo> info,
                           &err) == nullptr) {
     dwarfexport_error("dwarf_add_AT_string failed: ", dwarf_errmsg(err));
   }
+
+  dwarfexport_log("Adding function ", &name[0], " (", &mangled_name[0], ")");
 
   // Add ret type
   tinfo_t func_type_info;
@@ -603,6 +618,7 @@ static Dwarf_P_Die add_function(std::shared_ptr<DwarfGenInfo> info,
  * the debug info was being exported.
  */
 void add_structures(Dwarf_P_Debug dbg, Dwarf_P_Die cu, type_record_t &record) {
+  dwarfexport_log("Adding unused types");
   for (auto idx = get_first_struc_idx(); idx != BADADDR;
        idx = get_next_struc_idx(idx)) {
     auto tid = get_struc_by_idx(idx);
@@ -620,6 +636,7 @@ void add_structures(Dwarf_P_Debug dbg, Dwarf_P_Die cu, type_record_t &record) {
  */
 void add_global_variables(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
                           type_record_t &record) {
+  dwarfexport_log("Adding global variables");
   Dwarf_Error err = 0;
   auto seg_count = get_segm_qty();
 
@@ -639,6 +656,10 @@ void add_global_variables(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
       if (guess_tinfo2(addr, &type) != GUESS_FUNC_OK) {
         continue;
       }
+
+      dwarfexport_log("Adding global variable");
+      dwarfexport_log("  name = ", name);
+      dwarfexport_log("  location = ", addr);
 
       auto die =
           dwarf_new_die(dbg, DW_TAG_variable, cu, NULL, NULL, NULL, &err);
@@ -764,8 +785,8 @@ void idaapi run(int) {
         1) {
 
       if (options.verbose()) {
-        enable_logging = true;
-        dwarfexport_log("Verbose mode enabled");
+        logger = std::ofstream("dwarfexport.log");
+        msg("Verbose mode enabled. Logging to dwarfexport.log\n");
       }
 
       if (!options.attach_debug_info()) {
