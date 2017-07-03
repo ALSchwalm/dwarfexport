@@ -1,0 +1,31 @@
+CXX ?= g++
+CXXFLAGS=-fPIC -shared -Wall -Wextra -std=c++11
+LDFLAGS+=-static-libgcc -Wl,--allow-multiple-definition
+LIBS=lib/libstdc++.a lib/libdwarf-win32.a
+INCLUDES=-I$(IDASDK_PATH)/include -I$(IDA_PATH)/plugins/hexrays_sdk/include -I/usr/include \
+	-I../dwarf-20161124 -I../dwarf-20161124/libdwarf
+
+DWARFEXPORT_SRC = $(wildcard src/*.cpp)
+
+all: bin/dwarfexport.plw bin/dwarfexport.p64
+
+bin/dwarfexport.plw: $(DWARFEXPORT_SRC)
+	$(CXX) $(LDFLAGS) $(DWARFEXPORT_SRC) $(CXXFLAGS) \
+	-L. \
+	-L$(IDA_PATH) \
+	$(INCLUDES) \
+	$(LIBS) \
+	$(IDASDK_PATH)/lib/x86_win_gcc_32/ida.a \
+	-D__NT__ -D__IDP__ -DEM_AARCH64=183 -o bin/dwarfexport.plw
+
+bin/dwarfexport.p64: $(DWARFEXPORT_SRC)
+	$(CXX) $(LDFLAGS) $(DWARFEXPORT_SRC) $(CXXFLAGS) \
+	-L. \
+	-L$(IDA_PATH) \
+	$(LIBS) \
+	$(IDASDK_PATH)/lib/x86_win_gcc_64/ida.a \
+	$(INCLUDES) \
+	-D__NT__ -D__EA64__ -D__IDP__ -DEM_AARCH64=183 -o bin/dwarfexport.p64
+
+clean:
+	rm -f bin/dwarfexport.plw bin/dwarfexport.p64

@@ -447,7 +447,7 @@ static void add_decompiler_func_info(std::shared_ptr<DwarfGenInfo> info,
   // Add line info
   const auto &sv = cfunc->get_pseudocode();
   const auto &bounds = cfunc->get_boundaries();
-  const auto &eamap = cfunc->get_eamap();
+  //const auto &eamap = cfunc->get_eamap();
   ea_t previous_line_addr = 0;
   for (std::size_t i = 0; i < sv.size(); ++i, ++linecount) {
     char buf[MAXSTR];
@@ -490,14 +490,14 @@ static void add_decompiler_func_info(std::shared_ptr<DwarfGenInfo> info,
 
       // Get the bounds of the expression. This fixes issues where the arguments
       // to a multi-line function call were not correctly handled.
-      ea_t expr_lowest_addr = addr, expr_highest_addr = addr;
-      if (eamap.count(addr)) {
+       ea_t expr_lowest_addr = addr, expr_highest_addr = addr;
+      /*if (eamap.count(addr)) {
         const auto &expr_areaset = bounds.at(eamap.at(addr).at(0));
 
         // TODO: the area set may not be sorted this way
         expr_lowest_addr = expr_areaset.getarea(0).startEA;
         expr_highest_addr = expr_areaset.lastarea().endEA - 1;
-      }
+      } */
 
       // In some situations, there are multiple lines that have the same
       // 'lowest' point. To avoid mapping multiple lines to the same address, we
