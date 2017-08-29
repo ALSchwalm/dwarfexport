@@ -2,26 +2,40 @@ CXX ?= clang++
 MACSDK=$(shell xcrun --show-sdk-path --sdk macosx)
 CXXFLAGS=-m32 -fPIC -shared -Wall -Wextra -std=c++14 -isysroot $(MACSDK) -stdlib=libc++ -DUSE_DANGEROUS_FUNCTIONS=1 -DUSE_STANDARD_FILE_FUNCTIONS=1
 LDFLAGS=-Lthirdparty/libelf-0.8.13/lib -Lthirdparty/libdwarf/libdwarf
-LIBS=-lida -lelf -ldwarf -lz
+LIBS=-lelf -ldwarf -lz
 INCLUDES=-I$(IDASDK_PATH)/include -I$(IDA_PATH)/plugins/hexrays_sdk/include -Ithirdparty/libdwarf -I/usr/local/include
 
 DWARFEXPORT_SRC = $(wildcard src/*.cpp)
 
-all: bin/dwarfexport.pmc bin/dwarfexport.pmc64
+all: check-env bin/dwarfexport.pmc bin/dwarfexport.pmc64
 
 bin/dwarfexport.pmc: $(DWARFEXPORT_SRC)
 	$(CXX) $(LDFLAGS) $(DWARFEXPORT_SRC) $(CXXFLAGS) \
 	-L. \
 	-L$(IDA_PATH) \
 	$(INCLUDES) \
-	-D__MAC__ $(LIBS) -o bin/dwarfexport.pmc
+	-D__MAC__ $(LIBS) -lida -o bin/dwarfexport.pmc
 
 bin/dwarfexport.pmc64: $(DWARFEXPORT_SRC)
 	$(CXX) $(LDFLAGS) $(DWARFEXPORT_SRC) $(CXXFLAGS) \
 	-L. \
 	-L$(IDA_PATH) \
 	$(INCLUDES) \
-	-D__MAC__ -D__EA64__ $(LIBS) -o bin/dwarfexport.pmc64
+	-D__MAC__ -D__EA64__ $(LIBS) -lida64 -o bin/dwarfexport.pmc64
 
 clean:
 	rm -f bin/dwarfexport.pmc bin/dwarfexport.pmc64
+
+install:
+	cp -f bin/dwarfexport.pmc $(IDA_PATH)/plugins/
+	cp -f bin/dwarfexport.pmc64 $(IDA_PATH)/plugins/
+
+check-env:
+ifndef IDASDK_PATH
+    $(error IDASDK_PATH is undefined)
+endif
+ifndef IDA_PATH
+    $(error IDA_PATH is undefined)
+endif
+
+.PHONY: check-env
