@@ -348,13 +348,29 @@ static void generate_copy_with_dbg_info(std::shared_ptr<DwarfGenInfo> info,
 
   add_debug_section_data(info);
 
-  // Fix the section header start location
+  // Get the current last section (to fix section header and string table loc)
   auto last_scn = get_last_section(elf_out);
   GElf_Shdr last_shdr;
   if (gelf_getshdr(last_scn, &last_shdr) != &last_shdr)
     dwarfexport_error("gelf_getshdr() failed: ", elf_errmsg(-1));
 
-  ehdr_out.e_shoff = last_shdr.sh_offset + last_shdr.sh_size;
+  // Fix the section header string table start location
+  std::size_t shstrndx = 0;
+  if (elf_getshdrstrndx(elf_out, &shstrndx) == -1)
+    dwarfexport_error("elf_getshdrstrndx() failed: ", elf_errmsg(-1));
+
+  Elf_Scn *shstr_scn = elf_getscn(elf_out, shstrndx);
+  GElf_Shdr shstr_shdr;
+  if (!gelf_getshdr(shstr_scn, &shstr_shdr))
+    dwarfexport_error("elf_getshdr() failed: ", elf_errmsg(-1));
+
+  shstr_shdr.sh_offset = last_shdr.sh_offset + last_shdr.sh_size;
+
+  if (!gelf_update_shdr(shstr_scn, &shstr_shdr))
+    dwarfexport_error("gelf_update_shdr() failed: ", elf_errmsg(-1));
+
+  // Fix the section header start location
+  ehdr_out.e_shoff = shstr_shdr.sh_offset + shstr_shdr.sh_size;
   if (gelf_update_ehdr(elf_out, &ehdr_out) == 0)
     dwarfexport_error("gelf_update_ehdr() failed: ", elf_errmsg(-1));
 
