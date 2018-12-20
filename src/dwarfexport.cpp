@@ -650,7 +650,7 @@ void add_global_variables(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
 
     for (auto addr = seg->start_ea; addr < seg->end_ea; ++addr) {
       qstring name;
-      if ((name = get_name(addr)) == NULL) {
+      if (!get_name(&name, addr)) {
         continue;
       }
 
