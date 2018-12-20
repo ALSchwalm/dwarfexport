@@ -5,7 +5,7 @@
 #include <fstream>
 #include <hexrays.hpp>
 #include <iostream>
-#include <libdwarf/libdwarf.h>
+#include <libdwarf.h>
 #include <memory>
 #include <sstream>
 #include <stdexcept>

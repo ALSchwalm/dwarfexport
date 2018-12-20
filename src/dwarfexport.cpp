@@ -1,13 +1,15 @@
-
 #include <cstdio>
 #include <cstdlib>
 #include <frame.hpp>
 #include <fstream>
 #include <ida.hpp>
+#include <hexrays.hpp>
 #include <idp.hpp>
 #include <kernwin.hpp>
 #include <loader.hpp>
 #include <name.hpp>
+#include <range.hpp>
+#include <segment.hpp>
 #include <string>
 #include <struct.hpp>
 
@@ -73,7 +75,7 @@ static Dwarf_P_Die add_struct_type(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
   for (int i = 0; i < member_count; ++i) {
     udt_member_t member;
     member.offset = i;
-    type.find_udt_member(STRMEM_INDEX, &member);
+    type.find_udt_member(&member, STRMEM_INDEX);
     auto member_type = member.type;
     auto member_die =
         dwarf_new_die(dbg, DW_TAG_member, die, NULL, NULL, NULL, &err);
@@ -149,7 +151,7 @@ static Dwarf_P_Die add_array_type(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
       qstring name;
 
       // Try to get size_t and use it for the index type
-      if (parse_decl2(idati, "size_t x;", &name, &size_type, PT_SIL)) {
+      if (parse_decl(&size_type, &name, NULL, "size_t x;", PT_SIL)) {
         auto index_die = get_or_add_type(dbg, cu, size_type, record);
         if (dwarf_add_AT_reference(dbg, subrange, DW_AT_type, index_die,
                                    &err) == nullptr) {
@@ -361,7 +363,7 @@ static void add_disassembler_func_info(std::shared_ptr<DwarfGenInfo> info,
   }
 
   for (std::size_t i = 0; i < frame->memqty; ++i) {
-    auto name = get_member_name2(frame->members[i].id);
+    auto name = get_member_name(frame->members[i].id);
 
     // Ignore these special 'variables'
     if (name == " s" || name == " r") {
@@ -387,7 +389,7 @@ static void add_disassembler_func_info(std::shared_ptr<DwarfGenInfo> info,
     auto member_struct = get_sptr(&frame->members[i]);
     if (member_struct) {
       tinfo_t type;
-      if (guess_tinfo2(member_struct->id, &type) == GUESS_FUNC_OK) {
+      if (guess_tinfo(&type, member_struct->id) == GUESS_FUNC_OK) {
         auto var_type_die = get_or_add_type(dbg, cu, type, record);
         if (dwarf_add_AT_reference(dbg, die, DW_AT_type, var_type_die, &err) ==
             nullptr) {
@@ -432,7 +434,7 @@ static void add_decompiler_func_info(std::shared_ptr<DwarfGenInfo> info,
   cfuncptr_t cfunc = decompile(func, &hf);
 
   if (cfunc == nullptr) {
-    dwarfexport_log("Failed to decompile function at ", func->startEA);
+    dwarfexport_log("Failed to decompile function at ", func->start_ea);
     return;
   }
 
@@ -450,11 +452,11 @@ static void add_decompiler_func_info(std::shared_ptr<DwarfGenInfo> info,
   const auto &eamap = cfunc->get_eamap();
   ea_t previous_line_addr = 0;
   for (std::size_t i = 0; i < sv.size(); ++i, ++linecount) {
-    char buf[MAXSTR];
-    const char *line = sv[i].line.c_str();
-    tag_remove(line, buf, MAXSTR);
+    qstring buf;
+    qstring line = sv[i].line;
+    tag_remove(&buf, line);
 
-    auto stripped_buf = std::string(buf);
+    auto stripped_buf = std::string(buf.c_str());
     file << stripped_buf + "\n";
 
     dwarfexport_log("Processing line: ", stripped_buf);
@@ -470,7 +472,7 @@ static void add_decompiler_func_info(std::shared_ptr<DwarfGenInfo> info,
     // for that.
     ea_t lowest_line_addr = 0, highest_line_addr = 0;
     for (; index < stripped_buf.size(); ++index) {
-      if (!cfunc->get_line_item(line, index, true, nullptr, &item, nullptr)) {
+      if (!cfunc->get_line_item(line.c_str(), index, true, nullptr, &item, nullptr)) {
         continue;
       }
 
@@ -484,7 +486,7 @@ static void add_decompiler_func_info(std::shared_ptr<DwarfGenInfo> info,
 
       // The address for this expression is outside of this function,
       // so something strange is happening. Just ignore it.
-      if (addr == (ea_t)-1 || addr < func->startEA || addr > func->endEA) {
+      if (addr == (ea_t)-1 || addr < func->start_ea || addr > func->end_ea) {
         continue;
       }
 
@@ -495,8 +497,8 @@ static void add_decompiler_func_info(std::shared_ptr<DwarfGenInfo> info,
         const auto &expr_areaset = bounds.at(eamap.at(addr).at(0));
 
         // TODO: the area set may not be sorted this way
-        expr_lowest_addr = expr_areaset.getarea(0).startEA;
-        expr_highest_addr = expr_areaset.lastarea().endEA - 1;
+        expr_lowest_addr = expr_areaset.getrange(0).start_ea;
+        expr_highest_addr = expr_areaset.lastrange().end_ea - 1;
       }
 
       // In some situations, there are multiple lines that have the same
@@ -560,14 +562,14 @@ static Dwarf_P_Die add_function(std::shared_ptr<DwarfGenInfo> info,
   }
 
   // Add function name
-  auto name = get_long_name(func->startEA);
+  auto name = get_long_name(func->start_ea);
   char *c_name = &*name.begin();
 
   if (dwarf_add_AT_name(die, c_name, &err) == nullptr) {
     dwarfexport_error("dwarf_add_AT_name failed: ", dwarf_errmsg(err));
   }
 
-  auto mangled_name = get_true_name(func->startEA);
+  auto mangled_name = get_name(func->start_ea);
   if (dwarf_add_AT_string(dbg, die, DW_AT_linkage_name, &mangled_name[0],
                           &err) == nullptr) {
     dwarfexport_error("dwarf_add_AT_string failed: ", dwarf_errmsg(err));
@@ -577,7 +579,7 @@ static Dwarf_P_Die add_function(std::shared_ptr<DwarfGenInfo> info,
 
   // Add ret type
   tinfo_t func_type_info;
-  if (get_tinfo2(func->startEA, &func_type_info)) {
+  if (get_tinfo(&func_type_info, func->start_ea)) {
     auto rettype = func_type_info.get_rettype();
     auto rettype_die = get_or_add_type(dbg, cu, rettype, record);
     if (dwarf_add_AT_reference(dbg, die, DW_AT_type, rettype_die, &err) ==
@@ -587,10 +589,10 @@ static Dwarf_P_Die add_function(std::shared_ptr<DwarfGenInfo> info,
   }
 
   // Add function bounds
-  dwarf_add_AT_targ_address(dbg, die, DW_AT_low_pc, func->startEA, 0, &err);
-  dwarf_add_AT_targ_address(dbg, die, DW_AT_high_pc, func->endEA - 1, 0, &err);
+  dwarf_add_AT_targ_address(dbg, die, DW_AT_low_pc, func->start_ea, 0, &err);
+  dwarf_add_AT_targ_address(dbg, die, DW_AT_high_pc, func->end_ea - 1, 0, &err);
 
-  auto is_named = has_name(getFlags(func->startEA));
+  auto is_named = has_name(get_flags(func->start_ea));
   if (has_decompiler && options.use_decompiler() &&
       (!options.only_decompile_named_funcs() ||
        (options.only_decompile_named_funcs() && is_named))) {
@@ -600,7 +602,7 @@ static Dwarf_P_Die add_function(std::shared_ptr<DwarfGenInfo> info,
     dwarf_add_AT_unsigned_const(dbg, die, DW_AT_decl_line, linecount, &err);
 
     // The start of every function should have a line entry
-    dwarf_add_line_entry(dbg, file_index, func->startEA, linecount, 0, true,
+    dwarf_add_line_entry(dbg, file_index, func->start_ea, linecount, 0, true,
                          false, &err);
 
     add_decompiler_func_info(info, cu, die, func, file, linecount, file_index,
@@ -624,7 +626,7 @@ void add_structures(Dwarf_P_Debug dbg, Dwarf_P_Die cu, type_record_t &record) {
     auto tid = get_struc_by_idx(idx);
     tinfo_t type;
 
-    if (guess_tinfo2(tid, &type) == GUESS_FUNC_OK) {
+    if (guess_tinfo(&type, tid) == GUESS_FUNC_OK) {
       get_or_add_type(dbg, cu, type, record);
     }
   }
@@ -646,26 +648,29 @@ void add_global_variables(Dwarf_P_Debug dbg, Dwarf_P_Die cu,
       continue;
     }
 
-    for (auto addr = seg->startEA; addr < seg->endEA; ++addr) {
-      char name[MAXSTR];
-      if (!get_name(BADADDR, addr, name, MAXSTR)) {
+    for (auto addr = seg->start_ea; addr < seg->end_ea; ++addr) {
+      qstring name;
+      if ((name = get_name(addr)) == NULL) {
         continue;
       }
 
       tinfo_t type;
-      if (guess_tinfo2(addr, &type) != GUESS_FUNC_OK) {
+      if (guess_tinfo(&type, addr) != GUESS_FUNC_OK) {
         continue;
       }
 
       dwarfexport_log("Adding global variable");
-      dwarfexport_log("  name = ", name);
+      std::string lname(name.c_str());
+      dwarfexport_log("  name = ", lname);
+
       dwarfexport_log("  location = ", addr);
 
       auto die =
           dwarf_new_die(dbg, DW_TAG_variable, cu, NULL, NULL, NULL, &err);
       auto var_type_die = get_or_add_type(dbg, cu, type, record);
 
-      if (dwarf_add_AT_name(die, name, &err) == NULL) {
+
+      if (dwarf_add_AT_name(die, const_cast<char *>(name.c_str()), &err) == NULL) {
         dwarfexport_error("dwarf_add_AT_name failed: ", dwarf_errmsg(err));
       }
 
@@ -729,23 +734,24 @@ void add_debug_info(std::shared_ptr<DwarfGenInfo> info,
       continue;
     }
 
-    char segname[MAXSTR];
-    get_true_segm_name(seg, segname, sizeof(segname));
-    dwarfexport_log("Adding functions from: ", segname);
+    qstring segname;
+    get_segm_name(&segname, seg);
+    std::string lsegname(segname.c_str());
+    dwarfexport_log("Adding functions from: ", lsegname);
 
-    func_t *f = get_func(seg->startEA);
+    func_t *f = get_func(seg->start_ea);
     if (f == nullptr) {
       // In some cases, the start of the section may not actually be a function,
       // so get the first available function.
-      f = get_next_func(seg->startEA);
+      f = get_next_func(seg->start_ea);
 
       if (f == nullptr) {
         dwarfexport_error("get_next_func() failed");
       }
     }
 
-    for (; f != nullptr; f = get_next_func(f->startEA)) {
-      if (f->startEA > seg->endEA) {
+    for (; f != nullptr; f = get_next_func(f->start_ea)) {
+      if (f->start_ea > seg->end_ea) {
         break;
       }
 
@@ -775,7 +781,7 @@ int idaapi init(void) {
   return PLUGIN_OK;
 }
 
-void idaapi run(int) {
+bool idaapi run(size_t) {
   try {
     auto default_options =
         (has_decompiler) ? Options::ATTACH_DEBUG_INFO | Options::USE_DECOMPILER
@@ -799,7 +805,7 @@ void idaapi run(int) {
                          "<Attach Debug Info:C>\n"
                          "<Verbose:C>>\n";
 
-    if (AskUsingForm_c(dialog, options.filepath, &options.export_options) ==
+    if (ask_form(dialog, options.filepath, &options.export_options) ==
         1) {
 
       if (options.verbose()) {
