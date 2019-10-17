@@ -1,0 +1,86 @@
+!include ..\MSVC.mk
+
+CFLAGS=$(COMMONCFLAGS) /DHAVE_CONFIG_H /Ilibdwarf-helpers /Ilibdwarf/libdwarf
+
+# Adapted by a simple search-and-replace from am_libdwarf_la_OBJECTS
+# variable in libdwarf\libdwarf\Makefile.in.
+OBJECTS=libdwarf\libdwarf\dwarf_abbrev$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_alloc$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_arange$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_debuglink$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_die_deliv$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_dnames$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_dsc$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_elf_access$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_elf_load_headers$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_elfread$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_elf_rel_detector$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_error$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_form$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_frame$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_frame2$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_funcs$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_gdbindex$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_generic_init$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_global$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_groups$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_harmless$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_init_finish$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_leb$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_line$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_loc$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_machoread$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_macro$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_macro5$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_names$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_object_detector$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_object_read_common$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_original_elf_init$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_peread$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_print_lines$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_pubtypes$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_query$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_ranges$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_str_offsets$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarfstring$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_stringsection$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_tied$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_tsearchhash$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_types$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_util$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_vars$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_weaks$(OBJSUFFIX) \
+        libdwarf\libdwarf\dwarf_xu_index$(OBJSUFFIX) \
+        libdwarf\libdwarf\malloc_check$(OBJSUFFIX) \
+        libdwarf\libdwarf\pro_alloc$(OBJSUFFIX) \
+        libdwarf\libdwarf\pro_arange$(OBJSUFFIX) \
+        libdwarf\libdwarf\pro_die$(OBJSUFFIX) \
+        libdwarf\libdwarf\pro_dnames$(OBJSUFFIX) \
+        libdwarf\libdwarf\pro_encode_nm$(OBJSUFFIX) \
+        libdwarf\libdwarf\pro_error$(OBJSUFFIX) \
+        libdwarf\libdwarf\pro_expr$(OBJSUFFIX) \
+        libdwarf\libdwarf\pro_finish$(OBJSUFFIX) \
+        libdwarf\libdwarf\pro_forms$(OBJSUFFIX) \
+        libdwarf\libdwarf\pro_frame$(OBJSUFFIX) \
+        libdwarf\libdwarf\pro_funcs$(OBJSUFFIX) \
+        libdwarf\libdwarf\pro_init$(OBJSUFFIX) \
+        libdwarf\libdwarf\pro_line$(OBJSUFFIX) \
+        libdwarf\libdwarf\pro_log_extra_flag_strings$(OBJSUFFIX) \
+        libdwarf\libdwarf\pro_macinfo$(OBJSUFFIX) \
+        libdwarf\libdwarf\pro_pubnames$(OBJSUFFIX) \
+        libdwarf\libdwarf\pro_reloc$(OBJSUFFIX) \
+        libdwarf\libdwarf\pro_reloc_stream$(OBJSUFFIX) \
+        libdwarf\libdwarf\pro_reloc_symbolic$(OBJSUFFIX) \
+        libdwarf\libdwarf\pro_section$(OBJSUFFIX) \
+        libdwarf\libdwarf\pro_types$(OBJSUFFIX) \
+        libdwarf\libdwarf\pro_vars$(OBJSUFFIX) \
+        libdwarf\libdwarf\pro_weaks$(OBJSUFFIX)
+
+lib\libdwarf$(LIBSUFFIX): $(OBJECTS)
+    $(AR) -OUT:$@ $(OBJECTS)
+
+.c$(OBJSUFFIX):
+    $(CC) /c $(CFLAGS) /Fo:$@ $<
+
+clean:
+    $(RM) $(OBJECTS) lib\libdwarf$(LIBSUFFIX)

@@ -1,0 +1,46 @@
+!include MSVC.mk
+
+CXXFLAGS=$(COMMONCXXFLAGS) \
+         $(IDACXXFLAGS) \
+         /D__NT__ \
+         /DUSE_STANDARD_FILE_FUNCTIONS \
+         /I"$(IDASDK_PATH)"\include \
+         /I"$(IDA_PATH)"\plugins\hexrays_sdk\include \
+         /Ideps\libdwarf-helpers \
+         /Ideps\libdwarf\libdwarf \
+         /Ideps\libelf-helpers \
+         /Ideps\libelf-0.8.13\lib
+
+OBJECTS=src\dwarfexport$(OBJSUFFIX) \
+        src\dwarfgen$(OBJSUFFIX) \
+        src\platform$(OBJSUFFIX)
+
+all: bin\dwarfexport$(DLLSUFFIX)
+
+bin\dwarfexport$(DLLSUFFIX): $(OBJECTS) \
+                             deps\lib\libdwarf$(LIBSUFFIX) \
+                             deps\lib\libelf$(LIBSUFFIX)
+    $(LD) /DLL $(LDFLAGS) /OUT:$@ $(OBJECTS) \
+                                  deps\lib\libdwarf$(LIBSUFFIX) \
+                                  deps\lib\libelf$(LIBSUFFIX) \
+                                  "$(IDASDK_PATH)"\lib\$(IDALIB)
+
+deps\lib\libdwarf$(LIBSUFFIX): deps\Makefile-libdwarf.MSVC
+    cd deps
+    $(MAKE) /f Makefile-libdwarf.MSVC
+    cd ..
+
+deps\lib\libelf$(LIBSUFFIX): deps\Makefile-libelf.MSVC
+    cd deps
+    $(MAKE) /f Makefile-libelf.MSVC
+    cd ..
+
+.cpp$(OBJSUFFIX):
+    $(CXX) /c $(CXXFLAGS) /Fo:$@ $<
+
+clean:
+    $(RM) $(OBJECTS) bin\dwarfexport$(DLLSUFFIX)
+    cd deps
+    $(MAKE) /f Makefile-libdwarf.MSVC clean
+    $(MAKE) /f Makefile-libelf.MSVC clean
+    cd ..

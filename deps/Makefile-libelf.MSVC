@@ -1,0 +1,69 @@
+!include ..\MSVC.mk
+
+CFLAGS=$(COMMONCFLAGS) /DHAVE_CONFIG_H /Ilibelf-helpers /Ilibelf-0.8.13\lib
+
+# Adapted by a simple search-and-replace from SRCS*
+# variables in libelf-0.8.13\lib.
+OBJECTS=libelf-0.8.13\lib\begin$(OBJSUFFIX) \
+        libelf-0.8.13\lib\cntl$(OBJSUFFIX) \
+        libelf-0.8.13\lib\end$(OBJSUFFIX) \
+        libelf-0.8.13\lib\errmsg$(OBJSUFFIX) \
+        libelf-0.8.13\lib\errno$(OBJSUFFIX) \
+        libelf-0.8.13\lib\fill$(OBJSUFFIX) \
+        libelf-0.8.13\lib\flag$(OBJSUFFIX) \
+        libelf-0.8.13\lib\getarhdr$(OBJSUFFIX) \
+        libelf-0.8.13\lib\getarsym$(OBJSUFFIX) \
+        libelf-0.8.13\lib\getbase$(OBJSUFFIX) \
+        libelf-0.8.13\lib\getdata$(OBJSUFFIX) \
+        libelf-0.8.13\lib\getident$(OBJSUFFIX) \
+        libelf-0.8.13\lib\getscn$(OBJSUFFIX) \
+        libelf-0.8.13\lib\hash$(OBJSUFFIX) \
+        libelf-0.8.13\lib\kind$(OBJSUFFIX) \
+        libelf-0.8.13\lib\ndxscn$(OBJSUFFIX) \
+        libelf-0.8.13\lib\newdata$(OBJSUFFIX) \
+        libelf-0.8.13\lib\newscn$(OBJSUFFIX) \
+        libelf-0.8.13\lib\next$(OBJSUFFIX) \
+        libelf-0.8.13\lib\nextscn$(OBJSUFFIX) \
+        libelf-0.8.13\lib\rand$(OBJSUFFIX) \
+        libelf-0.8.13\lib\rawdata$(OBJSUFFIX) \
+        libelf-0.8.13\lib\rawfile$(OBJSUFFIX) \
+        libelf-0.8.13\lib\strptr$(OBJSUFFIX) \
+        libelf-0.8.13\lib\update$(OBJSUFFIX) \
+        libelf-0.8.13\lib\version$(OBJSUFFIX) \
+        libelf-0.8.13\lib\checksum$(OBJSUFFIX) \
+        libelf-0.8.13\lib\getaroff$(OBJSUFFIX) \
+        libelf-0.8.13\lib\32.fsize$(OBJSUFFIX) \
+        libelf-0.8.13\lib\32.getehdr$(OBJSUFFIX) \
+        libelf-0.8.13\lib\32.getphdr$(OBJSUFFIX) \
+        libelf-0.8.13\lib\32.getshdr$(OBJSUFFIX) \
+        libelf-0.8.13\lib\32.newehdr$(OBJSUFFIX) \
+        libelf-0.8.13\lib\32.newphdr$(OBJSUFFIX) \
+        libelf-0.8.13\lib\32.xlatetof$(OBJSUFFIX) \
+        libelf-0.8.13\lib\cook$(OBJSUFFIX) \
+        libelf-0.8.13\lib\data$(OBJSUFFIX) \
+        libelf-0.8.13\lib\input$(OBJSUFFIX) \
+        libelf-0.8.13\lib\assert$(OBJSUFFIX) \
+        libelf-0.8.13\lib\nlist$(OBJSUFFIX) \
+        libelf-0.8.13\lib\opt.delscn$(OBJSUFFIX) \
+        libelf-0.8.13\lib\x.remscn$(OBJSUFFIX) \
+        libelf-0.8.13\lib\x.movscn$(OBJSUFFIX) \
+        libelf-0.8.13\lib\x.elfext$(OBJSUFFIX) \
+        libelf-0.8.13\lib\64.xlatetof$(OBJSUFFIX) \
+        libelf-0.8.13\lib\gelfehdr$(OBJSUFFIX) \
+        libelf-0.8.13\lib\gelfphdr$(OBJSUFFIX) \
+        libelf-0.8.13\lib\gelfshdr$(OBJSUFFIX) \
+        libelf-0.8.13\lib\gelftrans$(OBJSUFFIX) \
+        libelf-0.8.13\lib\swap64$(OBJSUFFIX) \
+        libelf-0.8.13\lib\verdef_32_tof$(OBJSUFFIX) \
+        libelf-0.8.13\lib\verdef_32_tom$(OBJSUFFIX) \
+        libelf-0.8.13\lib\verdef_64_tof$(OBJSUFFIX) \
+        libelf-0.8.13\lib\verdef_64_tom$(OBJSUFFIX)
+
+lib\libelf$(LIBSUFFIX): $(OBJECTS)
+    $(AR) -OUT:$@ $(OBJECTS)
+
+.c$(OBJSUFFIX):
+    $(CC) /c $(CFLAGS) /Fo:$@ $<
+
+clean:
+    $(RM) $(OBJECTS) lib\libelf$(LIBSUFFIX)
