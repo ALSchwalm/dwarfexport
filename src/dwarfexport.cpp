@@ -724,7 +724,7 @@ void add_debug_info(std::shared_ptr<DwarfGenInfo> info,
 
     // Only consider EXEC segments
     // TODO: Skip plt/got?
-    if (!(seg->perm & SEGPERM_EXEC)) {
+    if (!(seg->perm & SEGPERM_EXEC) && seg->type != SEG_CODE) {
       dwarfexport_log("Segment #", segn, " is not executable. Skipping.");
       continue;
     }
