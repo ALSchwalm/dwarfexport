@@ -53,8 +53,30 @@ folder location respectively. Then build the plugin using `make`.
 Building On Windows
 -------------------
 
-No instructions are currently provided. I'm using a series of hacks that I will
-clean up and document at some point.
+Windows build can be performed using MSVC Compiler (cl.exe) and NMAKE
+(nmake.exe). First, download and extract [libdwarf](
+https://sourceforge.net/p/libdwarf/code/ci/master/tree/) source code into
+`deps/libdwarf` and [libelf](
+https://fossies.org/linux/misc/old/libelf-0.8.13.tar.gz/) source code into
+`deps/libelf-0.8.13`. The commands below assume WSL/MinGW/Cygwin, but you can
+use any other method that you prefer.
+
+```
+$ git clone git://git.code.sf.net/p/libdwarf/code deps/libdwarf
+$ (cd deps/libdwarf && git checkout 988618dc8be8)
+$ curl https://fossies.org/linux/misc/old/libelf-0.8.13.tar.gz | tar -C deps -xz
+```
+
+Then, NMAKE can be invoked through x86 or x64 Native Tools Command Prompt for
+VS (depending on whether you need 32-bit or 64-bit plugin) as follows:
+
+```
+dwarfexport> nmake /f Makefile.MSVC IDA_PATH="C:\Program Files\IDA 7.2" IDASDK_PATH="C:\Program Files\IDA 7.2\sdk"
+```
+
+32-bit version will be placed into `bin\dwarfexport.dll`, 64-bit version will
+be placed into `bin\dwarfexport64.dll`.
+
 
 Building on macOS
 -----------------
