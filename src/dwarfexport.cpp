@@ -740,7 +740,8 @@ void add_debug_info(std::shared_ptr<DwarfGenInfo> info,
       f = get_next_func(seg->startEA);
 
       if (f == nullptr) {
-        dwarfexport_error("get_next_func() failed");
+        dwarfexport_log("Skipping ", lsegname, " because it has no functions");
+        continue;
       }
     }
 
