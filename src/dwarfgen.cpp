@@ -144,7 +144,7 @@ std::shared_ptr<DwarfGenInfo> generate_dwarf_object(const Options &options) {
 }
 
 static Elf_Scn *get_last_section(Elf *elf) {
-  std::size_t count, max_offset = 0;
+  std::size_t count, max_offset = 0, max_size = 0;
   GElf_Shdr shdr;
   Elf_Scn *last_scn;
 
@@ -156,9 +156,14 @@ static Elf_Scn *get_last_section(Elf *elf) {
     if (!gelf_getshdr(scn, &shdr)) {
       dwarfexport_error("elf_getshdr() failed: ", elf_errmsg(-1));
     }
-    if (shdr.sh_offset > max_offset) {
+    if (shdr.sh_type == SHT_NOBITS) {
+      continue;
+    }
+    if (shdr.sh_offset > max_offset ||
+        (shdr.sh_offset == max_offset && shdr.sh_size > max_size)) {
       last_scn = scn;
       max_offset = shdr.sh_offset;
+      max_size = shdr.sh_size;
     }
   }
   return last_scn;
@@ -243,6 +248,34 @@ static void add_debug_section_data(std::shared_ptr<DwarfGenInfo> info) {
   }
 }
 
+static void log_elf(Elf *elf) {
+  GElf_Ehdr ehdr;
+  int scn_index;
+  Elf_Scn *scn;
+  GElf_Shdr shdr;
+
+  if (gelf_getehdr(elf, &ehdr) != &ehdr)
+    dwarfexport_error("gelf_getehdr() failed: ", elf_errmsg(-1));
+
+  for (scn_index = 1; scn_index < ehdr.e_shnum; scn_index++) {
+    if ((scn = elf_getscn(elf, scn_index)) == NULL)
+      dwarfexport_error("getshdr() failed: ", elf_errmsg(-1));
+    if (gelf_getshdr(scn, &shdr) != &shdr)
+      dwarfexport_error("getshdr() failed: ", elf_errmsg(-1));
+    dwarfexport_log("Section #", scn_index,
+                    ": sh_name=", shdr.sh_name,
+                    ", sh_type=", shdr.sh_type,
+                    ", sh_flags=", shdr.sh_flags,
+                    ", sh_addr=", shdr.sh_addr,
+                    ", sh_offset=", shdr.sh_offset,
+                    ", sh_size=", shdr.sh_size,
+                    ", sh_link=", shdr.sh_link,
+                    ", sh_info=", shdr.sh_info,
+                    ", sh_addralign=", shdr.sh_addralign,
+                    ", sh_entsize=", shdr.sh_entsize);
+  }
+}
+
 static void generate_copy_with_dbg_info(std::shared_ptr<DwarfGenInfo> info,
                                         const std::string &src,
                                         const std::string &dst) {
@@ -284,10 +317,10 @@ static void generate_copy_with_dbg_info(std::shared_ptr<DwarfGenInfo> info,
 
   info->elf = elf_out;
 
-  /* Some compilers produce binaries with non-adjacent sections, so
-   * we cannot use the automatic layout. Suppress it and use the exact
+  /* Some compilers produce binaries with non-adjacent or overlapping sections,
+   * so we cannot use the automatic layout. Suppress it and use the exact
    * layout from the input. */
-  if (elf_flagelf(elf_out, ELF_C_SET, ELF_F_LAYOUT) == 0)
+  if (elf_flagelf(elf_out, ELF_C_SET, ELF_F_LAYOUT | ELF_F_LAYOUT_OVERLAP) == 0)
     dwarfexport_error("elf_flagelf failed: ", elf_errmsg(-1));
 
   if (gelf_getehdr(elf_out, &ehdr_out) != &ehdr_out)
@@ -346,7 +379,13 @@ static void generate_copy_with_dbg_info(std::shared_ptr<DwarfGenInfo> info,
       dwarfexport_error("gelf_update_shdr() failed: ", elf_errmsg(-1));
   }
 
+  dwarfexport_log("After copying the original sections:");
+  log_elf(elf_out);
+
   add_debug_section_data(info);
+
+  dwarfexport_log("After adding the debug sections:");
+  log_elf(elf_out);
 
   // Get the current last section (to fix section header and string table loc)
   auto last_scn = get_last_section(elf_out);
@@ -373,6 +412,9 @@ static void generate_copy_with_dbg_info(std::shared_ptr<DwarfGenInfo> info,
   ehdr_out.e_shoff = shstr_shdr.sh_offset + shstr_shdr.sh_size;
   if (gelf_update_ehdr(elf_out, &ehdr_out) == 0)
     dwarfexport_error("gelf_update_ehdr() failed: ", elf_errmsg(-1));
+
+  dwarfexport_log("After fixing various offsets:");
+  log_elf(elf_out);
 
   if (elf_update(elf_out, ELF_C_WRITE) < 0)
     dwarfexport_error("elf_update() failed: ", elf_errmsg(-1));
