@@ -1,4 +1,11 @@
 
+This Project is Unmaintained
+============================
+
+Due to a change in occupation, I no longer have access to IDA, so this project is 
+unmaintained. If you are interested in becoming a maintainer, please let me know. 
+Otherwise, it is unlikely I'll will merge anything but trivial merge requests.
+
 dwarfexport
 ===========
 
